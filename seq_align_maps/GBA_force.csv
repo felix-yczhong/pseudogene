@@ -1,0 +1,7 @@
+# position start inclusive, end exclusive
+# 0-based coordinate
+True Gene,True Gene,True Gene,True Gene,True Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Remark,Remark,Remark
+GBA,GBA,GBA,GBA,GBA,GBAP1,GBAP1,GBAP1,GBAP1,GBAP1,Remark,Remark,Remark
+Region,Chrom,Start,End,Length,Region,Chrom,Start,End,Length,Exclusion,Type,Identity
+exon 9,1,155235216,155235217,1,exon 9,1,155214589,155214590,1,,,
+exon 9,1,155235202,155235203,1,exon 9,1,155214575,155214576,1,,,

@@ -1,0 +1,93 @@
+{
+    "genes": ["SMN", "GBA"],
+    "output": "pseudogene_{case_name}.xlsx",
+    "summary_tab": "{gene}",
+    "detail_tab": "{gene}_{num}",
+
+    "temp_files":
+    {
+        "vcf_path": "{gene}_{case_name}.vcf",
+        "nirvana_path": "{gene}_{case_name}",
+        "summary": "{gene}_{case_name}_summary.xlsx",
+        "details": "{gene}_{case_name}_details.xlsx"
+    },
+
+    "tools": 
+    {
+        "fasta_loc":
+        {
+            "hg19": "",
+            "hg38": "/Everythings/misc/bundle/hg38/Homo_sapiens_assembly38.fasta"
+        },
+
+        "nirvana_path": "/raid/Nirvana-3.11.1"
+    },
+
+    "seq_align_map":
+    {
+        "hg19": 
+        {
+
+        },
+        "hg38": 
+        {
+            "SMN": "seq_align_maps/{gene}.csv",
+            "GBA": "seq_align_maps/{gene}.csv"
+        }
+    },
+
+    "force":
+    {
+        "hg19": 
+        {
+
+        },
+        "hg38": 
+        {
+            "SMN": "seq_align_maps/{gene}_force.csv",
+            "GBA": "seq_align_maps/{gene}_force.csv"
+        }  
+    },
+
+    "SMN": 
+    {
+        "true_gene": "SMN1",
+        "pseudo_genes": ["SMN2"],
+        "hg19": 
+        {
+
+        },
+
+        "hg38": 
+        {
+            "NM_number": "NM_000344.4",
+            "true_gene_region": [5, 70924940, 70953942],
+            "pseudo_gene_regions": 
+            [
+                [5, 70049523, 70078522]
+            ],
+            "CNV_ratio_range": [2, 10]
+        }      
+    },
+
+    "GBA": 
+    {
+        "true_gene": "GBA",
+        "pseudo_genes": ["GBAP1"],
+        "hg19": 
+        {
+
+        },
+        
+        "hg38": 
+        {
+            "NM_number": "NM_001005741",
+            "true_gene_region": [1, 155234453, 155244670],
+            "pseudo_gene_regions": 
+            [
+                [1, 155213676, 155227611]
+            ],
+            "CNV_ratio_range": [4, 4]
+        }
+    }
+}

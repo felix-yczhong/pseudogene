@@ -1,0 +1,5 @@
+﻿# position start inclusive, end exclusive
+# 0-based coordinate
+True Gene,True Gene,True Gene,True Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Remark,Remark,Remark
+SMN1,SMN1,SMN1,SMN1,SMN2,SMN2,SMN2,SMN2,Remark,Remark,Remark
+Region,Chrom,Start,End,Region,Chrom,Start,End,Exclusion,Type,Identity

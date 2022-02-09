@@ -1,0 +1,14 @@
+﻿# position start inclusive, end exclusive
+# 0-based coordinate
+True Gene,True Gene,True Gene,True Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Pseudo Gene,Remark,Remark,Remark
+SMN1,SMN1,SMN1,SMN1,SMN2,SMN2,SMN2,SMN2,Remark,Remark,Remark
+Region,Chrom,Start,End,Region,Chrom,Start,End,Exclusion,Type,Identity
+Exon 1,5,70925086,70925183,Exon 1,5,70049668,70049765,,,100%
+Exon 2,5,70938838,70938909,Exon 2,5,70063414,70063485,,,100%
+Exon 3,5,70941388,70941507,Exon 3,5,70065964,70066083,,,100%
+Exon 4,5,70942357,70942557,Exon 4,5,70066933,70067133,,,100%
+Exon 5,5,70942717,70942869,Exon 5,5,70067293,70067445,,,100%
+Exon 6,5,70944657,70944752,Exon 6,5,70069234,70069329,,,100%
+Exon 7,5,70946065,70946175,Exon 7,5,70070640,70070750,,,100%
+Exon 8,5,70951940,70951993,Exon 8,5,70076520,70076573,Exon第六個variant c.840C>T (chr5:70076526T) in SMN2 (in SMN1 is chr5:70951946C) is the main difference between SMN1 and SMN2 (rs1164325688; g.32006 in SMN1 RefSeqGene),,92%
+Exon 9,5,70952438,70953014,Exon 9,5,70077018,70077594,,,99.83%
