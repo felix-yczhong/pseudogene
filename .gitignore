@@ -1,0 +1,6 @@
+pseudogene_venv/
+.vscode/
+__pycache__/
+pseudogene.egg-info/
+pseudogene*.xlsx
+workspace.code-workspace
