@@ -1,6 +1,7 @@
 import os
 import pathlib
 import json
+from fractions import Fraction
 
 import numpy as np
 import pandas as pd
@@ -19,41 +20,74 @@ def extract_case_name(input):
 def get_project_root() -> pathlib.Path:
     return pathlib.Path(__file__).parent.parent
 
-def find_closest_simple_fraction(R, n=5, m=5):
+def find_closest_reduced_fraction_F(R, n=5, m=5):
     """
-    find with Farey Sequence simple fraction i/j closest to a real number R <= 1
-    :param n: candidate of numerator from 1 to n, where 1 <= i <=n
+    find with Farey Sequence the closest reduced fraction i/j closest to a real number R <= 1
+    :param n: candidate of numerator from 0 to n, where 1 <= i <=n
     :param m: candidate of denominator from 1 to m, where 1 <= j <= m
     """
     a_num = 0
     a_denom = b_num = b_denom = 1
-
-    if isinstance(n, int):
-        it1 = range(1, n + 1)
-    else:
-        it1 = n
-    if isinstance(m, int):
-        it2 = range(1, m + 1)
-    else:
-        it2 = m
-
-    for c_num, c_denom in zip(it1, it2):
-        c_num = a_num + b_num
-        c_denom = a_denom + b_denom
-
-        if c_num > n or c_denom > m:
-            if R - a_num/a_denom < b_num/b_denom - R:
-                return a_num, a_denom
-            else:
-                return b_num, b_denom
-
-        if c_num/c_denom < R:
+    c_num = a_num + b_num
+    c_denom = a_denom + b_denom
+    
+    while c_num <= n and c_denom <= m:
+        if c_num / c_denom < R:
             a_num = c_num
             a_denom = c_denom
         else:
             b_num = c_num
             b_denom = c_denom
-    return 0, 0
+        c_num = a_num + b_num
+        c_denom = a_denom + b_denom
+        
+    return (a_num, a_denom) if R - a_num / a_denom <= b_num / b_denom - R else (b_num, b_denom)
+
+def find_closest_reduced_fraction_B(R, n, m):
+    """
+    find by binary search the closest reduced fraction i/j closest to a real number R <= 1
+    :param n: candidate of numerator from 0 to n, where 1 <= i <=n
+    :param m: candidate of denominator from 1 to m, where 1 <= j <= m
+    """
+    candidates = list(set(Fraction(i, j) for i in n for j in m))
+    candidates.sort()
+
+    lower = start = 0
+    upper = end = len(candidates)
+
+    # lower inclusive, upper exclusive
+
+    while lower < upper:
+        mid = (lower + upper) // 2
+        value = float(candidates[mid])
+        if value < R:
+            lower = mid + 1
+        elif value > R:
+            upper = mid
+        else:
+            return candidates[mid].as_integer_ratio()
+        
+    # now lower == upper
+    if lower == start:
+        return candidates[start].as_integer_ratio()
+    elif lower == end:
+        return candidates[end - 1].as_integer_ratio()
+    else:
+        return candidates[lower - 1].as_integer_ratio() if R - candidates[lower - 1] <= candidates[lower] - R else candidates[lower].as_integer_ratio()
+
+def find_closest_reduced_fraction(R, n, m):
+    if isinstance(n, int) and n < 1:
+        raise ValueError('fraction numerator limit (true gene copy number limit) must be higher than 0')
+    if isinstance(m, int) and m < 1:
+        raise ValueError('fraction denominator limit (pseudog gene copy number limit) must be higher than 0')
+    if isinstance(n, int) and isinstance(m, int) and R < 1:
+        return find_closest_reduced_fraction_F(R, n, m)
+    
+    if isinstance(n, int):
+        n = range(n + 1)
+    if isinstance(m, int):
+        m = range(1, m + 1)
+    return find_closest_reduced_fraction_B(R, n, m)
 
 def convert_coordinate_one_to_zero(genomic_range):
     """

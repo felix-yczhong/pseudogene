@@ -100,11 +100,7 @@ class PseudoGeneCalculator(SmaCalculatorExtended):
     def calculate_simple_ratio(self, bases):
         def _calculate_simple_ratio(row):
             if row["base_num_true"] != 0 and row["base_num_pseudo"] != 0:
-                if row["base_num_true"] <= row["base_num_pseudo"]:
-                    num, denom = find_closest_simple_fraction(row["base_num_true"] / row["base_num_pseudo"], n=self.CNV_ratio[0], m=self.CNV_ratio[1])
-                else:
-                    denom, num = find_closest_simple_fraction(row["base_num_pseudo"] / row["base_num_true"], n=self.CNV_ratio[1], m=self.CNV_ratio[0])
-                return num, denom
+                return find_closest_reduced_fraction(row["base_num_true"] / row["base_num_pseudo"], n=self.CNV_ratio[0], m=self.CNV_ratio[1])
             return 0, 0
         def merge_simple_ratio(row):
             if row["simple_true"] != 0 and row["simple_pseudo"] != 0:
@@ -130,7 +126,7 @@ class PseudoGeneCalculator(SmaCalculatorExtended):
     
     def calculate_delta(self, bases, simple_ratioes):
         def _calculate_delta(row):
-            if row["base_num_true"] == 0 or row["base_num_pseudo"] == 0:
+            if row["base_num_pseudo"] == 0 or row["simple_pseudo"] == 0:
                 return np.nan
             return round(abs(row["base_num_true"] / row["base_num_pseudo"] - row["simple_true"] / row["simple_pseudo"]), 4)
         delta = pd.concat([bases, simple_ratioes], axis=1).apply(_calculate_delta, axis=1)
