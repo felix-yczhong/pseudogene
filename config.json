@@ -1,16 +1,7 @@
 {
-    "genes": ["SMN", "GBA"],
+    "gene_group": ["SMN", "GBA"],
     "output": "pseudogene_{case_name}.xlsx",
     "summary_tab": "{gene}",
-    "detail_tab": "{gene}_{num}",
-
-    "temp_files":
-    {
-        "vcf_path": "{gene}_{case_name}.vcf",
-        "nirvana_path": "{gene}_{case_name}",
-        "summary": "{gene}_{case_name}_summary.xlsx",
-        "details": "{gene}_{case_name}_details.xlsx"
-    },
 
     "tools": 
     {
@@ -20,39 +11,36 @@
             "hg38": "/Everythings/misc/bundle/hg38/Homo_sapiens_assembly38.fasta"
         },
 
+        "BLAST+_path": "/home/user/ncbi-blast-2.13.0+/bin/blastn",
         "nirvana_path": "/raid/Nirvana-3.11.1"
     },
 
-    "seq_align_map":
+    "data":
     {
-        "hg19": 
-        {
-
+        "database_source": {
+            "hg19": "",
+            "hg38": "gencode.v39.annotation.gff3"
         },
-        "hg38": 
+    
+        "database_path": "data/db/gencode_{genome_ver}.db",
+
+        "fasta":
         {
-            "SMN": "seq_align_maps/{gene}.csv",
-            "GBA": "seq_align_maps/{gene}.csv"
+            "true_seq": "data/fasta/{gene}_{genome_ver}.fa",
+            "pseudo_seq": "data/fasta/{gene}_{genome_ver}.fa",
+            "true_exon": "data/fasta/{gene}_{genome_ver}_exon.fa"
+        },
+
+        "sam":
+        {
+            "aligned_seq": "data/sam/{true_gene}_{pseudo_gene}_{genome_ver}.bam"
         }
-    },
-
-    "force":
-    {
-        "hg19": 
-        {
-
-        },
-        "hg38": 
-        {
-            "SMN": "seq_align_maps/{gene}_force.csv",
-            "GBA": "seq_align_maps/{gene}_force.csv"
-        }  
     },
 
     "SMN": 
     {
-        "true_gene": "SMN1",
-        "pseudo_genes": ["SMN2"],
+        "true_gene": ["SMN1"],
+        "pseudo_gene": ["SMN2"],
         "hg19": 
         {
 
@@ -60,33 +48,47 @@
 
         "hg38": 
         {
-            "NM_number": "NM_000344.4",
-            "true_gene_region": [5, 70924940, 70953942],
-            "pseudo_gene_regions": 
-            [
-                [5, 70049523, 70078522]
-            ],
-            "CNV_ratio_range": [2, 10]
+            "SMN1": {
+                "NM_number": "NM_000344.4",
+                "gene_id": "ENSG00000172062.17",
+                "transcript_id": "ENST00000380707.9",
+                "exception": []
+            },
+
+            "SMN2": {
+                "gene_id": "ENSG00000205571.14",
+                "transcript_id": "ENST00000380743.9",
+                "exception": []
+            },
+
+            "CNV_ratio_range": [4, 10]
         }      
     },
 
     "GBA": 
     {
-        "true_gene": "GBA",
-        "pseudo_genes": ["GBAP1"],
+        "true_gene": ["GBA"],
+        "pseudo_gene": ["GBAP1"],
         "hg19": 
         {
 
         },
-        
         "hg38": 
         {
-            "NM_number": "NM_001005741",
-            "true_gene_region": [1, 155234453, 155244670],
-            "pseudo_gene_regions": 
-            [
-                [1, 155213676, 155227611]
-            ],
+            "GBA": {
+                "NM_number": "NM_001005741",
+                "gene_id": "ENSG00000177628.16",
+                "transcript_id": "ENST00000368373.8",
+                "exception": [["chr1", 155235202, "C"],
+                              ["chr1", 155235216, "C"]]
+            },
+
+            "GBAP1": {
+                "gene_id": "ENSG00000160766.15",
+                "transcript_id": "ENST00000368374.5",
+                "exception": []
+            },
+
             "CNV_ratio_range": [4, 4]
         }
     }

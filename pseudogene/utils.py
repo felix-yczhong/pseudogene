@@ -1,21 +1,35 @@
+from ctypes import alignment
 import os
 import pathlib
 import json
 from fractions import Fraction
+import functools
 
 import numpy as np
 import pandas as pd
 
-BASES = ['A', 'C', 'G', 'T', 'N']
+BASES = ['A', 'C', 'G', 'T']
 BASE_MATCH = {'A': 'T', 'C': 'G', 'T': 'A', 'G': 'C', 'N': 'N'}
 
 INDEX_TO_BASE_MAPPING = dict(enumerate(BASES))
 BASE_TO_INDEX_MAPPING = {value: key for key, value in INDEX_TO_BASE_MAPPING.items()}
 PLOIDY = 2 # assume control genes all diploid
 
+VCF_HEADER = "##fileformat=VCFv4.3\n"
+
 def extract_case_name(input):
     input = input.rsplit(sep='/', maxsplit=1)[1]
     return input.split(sep='.', maxsplit=1)[0]
+
+def analyze_read_seq_name(name):
+    exon_num, chr, start, end = name.replace('-', ':').split(':')
+    exon_num, start, end = int(exon_num), int(start), int(end)
+    return exon_num, chr, start, end
+
+def analyze_ref_seq_name(name):
+    chr, start, end = name.replace('-', ':').split(':')
+    start, end = int(start), int(end)
+    return chr, start, end
 
 def get_project_root() -> pathlib.Path:
     return pathlib.Path(__file__).parent.parent
@@ -89,49 +103,17 @@ def find_closest_reduced_fraction(R, n, m):
         m = range(1, m + 1)
     return find_closest_reduced_fraction_B(R, n, m)
 
-def convert_coordinate_one_to_zero(genomic_range):
+def convert_coordiante_fasta_to_sam(start, end):
     """
-    convert 1-based coordinate to 0-based coordinate
-    :param start: 1-based start inclusive
-    :param stop: 1-based stop exclusive
-    :return start, stop: start and stop position in 0-based coordinate
+    fasta coordinate: 1-based, both inclusive
+    sam coordinate: 0-based, start-inclusive, end-exclusive
     """
-    c, start, stop = genomic_range
-    return [c, start - 1, stop - 1]
-
-def convert_coordinate_zero_to_one(genomic_range):
-    """
-    convert 0-based coordinate to 1-based coordinate
-    :param start: 0-based start inclusive
-    :param stop: 0-based stop exclusive
-    :return start, stop: start and stop position in 1-based coordinate
-    """
-    c, start, stop = genomic_range
-    return [c, start + 1, stop + 1]
-
-def convert_coordinate_one_to_zero_df(row):
-    genomic_range = [row["Chrome"], row["Start"], row["End"]]
-    new_row = row.copy()
-    c, new_row["Start"], new_row["End"] = convert_coordinate_one_to_zero(genomic_range)
-    return new_row
-
-def reconstruct(df, convert_func=convert_coordinate_one_to_zero_df):
-    new_sub_dfs = []
-    for sub_df in [df["True Gene"], df["Pseudo Gene"]]:
-        names = []
-        subsub_dfs = []
-        for name, subsub_df in sub_df.groupby(axis=1, level=0):
-            new_subsub_df = subsub_df.apply(convert_func, axis=1)
-            subsub_dfs.append(new_subsub_df)
-            names.append(name)
-        new_sub_df = pd.concat(subsub_dfs, axis=1, names=names)
-        new_sub_dfs.append(new_sub_df)
-    new_df = pd.concat(new_sub_dfs, axis=1, names=["True Gene", "Pseudo Gene"])
-    return new_df
+    return start - 1, end
 
 def run_nirvana(tool_path, input_path, output_path, ref):
     ref_map = {"hg19": "GRCh37", "hg38": "GRCh38"}
     genomver = ref_map[ref]
+    print(output_path)
     command = f"dotnet {tool_path}/bin/Release/netcoreapp2.1/Nirvana.dll \
                 -c {tool_path}/Data/Cache/{genomver}/Both \
                 --sd {tool_path}/Data/SupplementaryAnnotation/{genomver} \
@@ -177,21 +159,19 @@ def run_annovar(case_name, panel):
     os.system(command)
     #TODO return annovar target file name/path
 
-def create_vcf(summary, alt_refs, case_name, true_gene, pseudo_gene, vcf_path):
+def create_vcf(alignment_info, case_name, true_genes, pseudo_genes):
     columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', f'{case_name}']
-    df = pd.DataFrame()
-    df[['#CHROM', 'POS']] = summary[[('True Gene', true_gene, 'Chrom'), ('True Gene', true_gene, 'Pos')]]
-    df[['REF', 'ALT']] = alt_refs  
-    for col_name in ['ID', 'QUAL', 'FILTER', 'INFO' , 'FORMAT', f'{case_name}']:
-        df[col_name] = pd.Series(['.'] * len(summary))
+    sub_columns = ['QUAL', 'FILTER', 'INFO' , 'FORMAT', f'{case_name}']
 
-    df = df[columns]
-
-    header = "##fileformat=VCFv4.3\n"
-    with open(vcf_path, 'w+') as f:
-        f.write(header)
-    df.to_csv(vcf_path, sep='\t', index=False, mode='a')
-    return df
+    rows = list()
+    for true_gene in true_genes:
+        for pseudo_gene in pseudo_genes:
+            for (true, pseudo) in alignment_info[true_gene][pseudo_gene]:
+                _, chr, pos, ref = true
+                _, _, _, alt = pseudo
+                df = pd.DataFrame([chr, pos, '.', ref, alt] + ['.'] * len(sub_columns), index=columns).transpose()
+                rows.append(df)
+    return pd.concat(rows, axis=0)
 
 def get_aa_change_from_nirvana(NM_num, vcf, output_path):
     output_path = output_path.parent / (output_path.name + '.json')
@@ -246,5 +226,6 @@ def get_aa_change_from_nirvana(NM_num, vcf, output_path):
         return "Not Found"
 
     aa_change = vcf.apply(find_func, axis=1, args=[NM_num])
-    aa_change.rename("aa_change", inplace=True)
+    aa_change = pd.DataFrame(aa_change, columns=[('ratio', 'ratio', 'aa_change')])
+    aa_change.reset_index(drop=True, inplace=True)
     return aa_change
