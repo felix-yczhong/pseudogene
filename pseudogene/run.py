@@ -92,7 +92,6 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
     summary_tab_template = config["summary_tab"]
 
     file_dict = preprocess_input_files(bam_list)
-    x = open('profile.txt', 'w+')
 
     if profile:
         import cProfile, pstats, atexit, io
@@ -102,8 +101,8 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
             prf.disable()
             print("Profiling completed")
             # ios = io.StringIO()
-            pstats.Stats(prf,
-                         stream=x).sort_stats("cumulative").print_stats()
+            with open('profile.txt', 'w+') as f:
+                pstats.Stats(prf, stream=f).sort_stats("cumulative").print_stats()
             # print(ios.getvalue())
 
         atexit.register(exit)

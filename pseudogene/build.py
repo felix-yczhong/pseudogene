@@ -26,16 +26,18 @@ def build_db(context, reference, database_source, database_path):
     config = context.obj['config']
     logger = logging.getLogger()
 
-    write_back_flag = True
-    if database_source is not None:
-        config["database_source"][reference] = database_source
-        write_back_flag = True
-    if database_path is not None:
-        config["database_path"][reference] = database_path
-        write_back_flag = True
+    # write_back_flag = True
+    # if database_source is not None:
+    #     config["data"]["database_source"][reference] = str(database_source)
+    #     write_back_flag = True
+    # if database_path is not None:
+    #     config["data"]["database_path"][reference] = database_path
+    #     write_back_flag = True
 
-    gffutils.create_db(config["database_source"][reference], dbfn=config["database_path"][reference], merge_strategy="create_unique")
-    logger.info('Building Gencode database success!')
-    if write_back_flag:
-        logger.info('Overriding database_source and database_path')
-        json.dump(config, open('123.json', 'w+'), separators=(',', ': '), indent='\t')
+    logger.info('Building Gencode database, it may take a while ...')
+    gffutils.create_db(str(database_source), dbfn=config["data"]["database_path"][reference].format(genome_ver=reference), merge_strategy="create_unique", from_string=False)
+
+    # logger.info('Building Gencode database success!')
+    # if write_back_flag:
+    #     logger.info('Overriding database_source and database_path')
+    #     json.dump(config, open('config.json', 'w+'), separators=(',', ': '), indent='\t')

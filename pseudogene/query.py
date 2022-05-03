@@ -105,7 +105,7 @@ def query_alignment(context, reference, gene_groups, debug):
     Query sequence alignment.
     """
     config = context.obj['config']
-    db = gffutils.FeatureDB(config["data"]["database_path"].format(genome_ver=reference))
+    db = gffutils.FeatureDB(config["data"]["database_path"][reference].format(genome_ver=reference))
     logger = logging.getLogger()
 
     # print(reference, gene_group, debug)

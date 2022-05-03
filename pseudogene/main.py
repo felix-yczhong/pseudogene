@@ -25,16 +25,16 @@ def main(context):
                 value = os.path.join(get_project_root(), value)
             dict_[key] = value
 
-    value = config["data"]["database_path"]
-    if not os.path.isabs(value):
-        value = os.path.join(get_project_root(), value)
-    config["data"]["database_path"] = value
+    for ref, value in config["data"]["database_path"].items():
+        if not os.path.isabs(value):
+            value = os.path.join(get_project_root(), value)
+        config["data"]["database_path"][ref] = value
 
     for gene_group in config['gene_group']:
         for true_gene in config[gene_group]['true_gene']:
             for genome_ver in ['hg38']:
                 exception = config[gene_group][genome_ver][true_gene]['exception']
-                if len(exception) == 0:
+                if exception is None or len(exception) == 0:
                     exception = None
                 elif any(len(e) != 3 for e in exception):
                     raise ValueError("exception point format error")
@@ -44,7 +44,7 @@ def main(context):
         for pseudo_gene in config[gene_group]['pseudo_gene']:
             for genome_ver in ['hg38']:
                 exception = config[gene_group][genome_ver][pseudo_gene]['exception']
-                if len(exception) == 0:
+                if exception is None or len(exception) == 0:
                     exception = None
                 elif any(len(e) != 3 for e in exception):
                     raise ValueError("exception point format error")

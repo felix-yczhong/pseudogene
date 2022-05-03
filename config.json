@@ -22,8 +22,11 @@
             "hg38": "gencode.v39.annotation.gff3"
         },
     
-        "database_path": "data/db/gencode_{genome_ver}.db",
-
+        "database_path": {
+            "hg19": "data/db/gencode_{genome_ver}.db",
+            "hg38": "data/db/gencode_{genome_ver}.db"
+        },
+        
         "fasta":
         {
             "true_seq": "data/fasta/{gene}_{genome_ver}.fa",
@@ -52,13 +55,13 @@
                 "NM_number": "NM_000344.4",
                 "gene_id": "ENSG00000172062.17",
                 "transcript_id": "ENST00000380707.9",
-                "exception": []
+                "exception": null
             },
 
             "SMN2": {
                 "gene_id": "ENSG00000205571.14",
                 "transcript_id": "ENST00000380743.9",
-                "exception": []
+                "exception": null
             },
 
             "CNV_ratio_range": [4, 10]
@@ -86,7 +89,7 @@
             "GBAP1": {
                 "gene_id": "ENSG00000160766.15",
                 "transcript_id": "ENST00000368374.5",
-                "exception": []
+                "exception": null
             },
 
             "CNV_ratio_range": [4, 4]

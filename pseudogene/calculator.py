@@ -491,8 +491,12 @@ class PseudoGeneCalculator():
         self.alignment_table = pd.concat([self.alignment_table, aa_change], axis=1)
         # prioritize exception points in alignment table
 
-        np.savetxt(f'{self.gene_group}_control_gene_cov.csv', self.control_gene_cov,  fmt='%3f', delimiter=',')
-        np.savetxt(f'{self.gene_group}_gene_region_cov.csv', self.gene_region_cov, fmt='%3f', delimiter=',')
+        control_gene_cov = pd.DataFrame(self.control_gene_cov, index=self.file_dict.values(), columns=C.POSITIONS[self.ref]["GENES"].keys())
+        control_gene_cov.to_csv(f'{self.gene_group}_control_gene_cov.csv')
+        gene_region_cov = pd.DataFrame(self.gene_region_cov, index=self.file_dict.values(), columns=self.true_gene + self.pseudo_gene)
+        gene_region_cov.to_csv(f'{self.gene_group}_gene_region_cov.csv')
+        # np.savetxt(f'{self.gene_group}_control_gene_cov.csv', self.control_gene_cov,  fmt='%3f', delimiter=',')
+        # np.savetxt(f'{self.gene_group}_gene_region_cov.csv', self.gene_region_cov, fmt='%3f', delimiter=',')
 
         # with ThreadPoolExecutor(max_workers=self.ncpus) as executor:
         fs = {
