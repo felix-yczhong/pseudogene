@@ -82,8 +82,8 @@
                 "NM_number": "NM_001005741",
                 "gene_id": "ENSG00000177628.16",
                 "transcript_id": "ENST00000368373.8",
-                "exception": [["chr1", 155235202, "C"],
-                              ["chr1", 155235216, "C"]]
+                "exception": [["chr1", 155235203, "G"],
+                              ["chr1", 155235217, "G"]]
             },
 
             "GBAP1": {
