@@ -8,7 +8,7 @@ class PseudoBam(Bam):
     def get_alignment_cov_util(self, pos_info):
         chr, pos = pos_info
         pos = pos - 1
-        return self.samfile.count_coverage(chr, pos, pos + 1)
+        return self.samfile.count_coverage(chr, pos, pos + 1, quality_threshold=0)
 
     def get_cov_ranges_(self, true_gene_ranges, pseudo_gene_ranges):
         # use np.array views to avoid copies
