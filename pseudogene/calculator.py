@@ -353,9 +353,10 @@ class PseudoGeneCalculator():
                     return pd.Series(bases)
 
                 scaled_ratio = [(base / sum_base) * scale_factor * num_genes * PLOIDY for base in bases] # num_genes need to change in multiple true/pseudogene scenario
-                min_ele = min([base for base in scaled_ratio if not np.isnan(base)])
-                multiplier = round(min_ele) / min_ele if min_ele != 0 and round(min_ele) != 0 else 1 # what if 2:0 (min_ele != 0 but rounds to 0)
-                predicted_ratio = [ele if np.isnan(ele) else round(ele * multiplier) for ele in scaled_ratio]
+                # min_ele = min([base for base in scaled_ratio if not np.isnan(base)])
+                # multiplier = round(min_ele) / min_ele if min_ele != 0 and round(min_ele) != 0 else 1 # what if 2:0 (min_ele != 0 but rounds to 0)
+                # predicted_ratio = [ele if np.isnan(ele) else round(ele * multiplier) for ele in scaled_ratio]
+                predicted_ratio = [ratio if np.isnan(ratio) else round(ratio) for ratio in scaled_ratio]
                 
                 return pd.Series(predicted_ratio)
             ratio = bases.apply(get_ratio, axis=1)
