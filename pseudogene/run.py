@@ -120,7 +120,7 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
 
         for result in concurrent.futures.as_completed(results):
             gene_group = results[result]
-            meta_file_dict[gene_group], scale_factors[gene_group] = result.result()
+            # meta_file_dict[gene_group], scale_factors[gene_group] = result.result()
 
         # ---------------- single process to evaluate performance -------------------
         # gene_groups = ['GBA']
@@ -129,14 +129,14 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
         #     meta_file_dict[gene_group], scale_factors[gene_group] = result
 
         # write out scale factors
-        with pd.ExcelWriter(output / output_path_template.format(case_name='scale_factors')) as writer:
-            df = pd.concat([pd.Series(scale_factors[gene_group], index=file_dict.keys()) for gene_group in gene_groups], axis=1, keys=gene_groups)
-            df.to_excel(writer, sheet_name=summary_tab_template.format(gene='scale_factors'), freeze_panes=(1, 0))        
+        # with pd.ExcelWriter(output / output_path_template.format(case_name='scale_factors')) as writer:
+        #     df = pd.concat([pd.Series(scale_factors[gene_group], index=file_dict.keys()) for gene_group in gene_groups], axis=1, keys=gene_groups)
+        #     df.to_excel(writer, sheet_name=summary_tab_template.format(gene='scale_factors'), freeze_panes=(1, 0))        
 
-        for case_name, file_path in file_dict.items():
-            # write info (original file path, time stamp) to excel sheet as header
-            # output and style
-            with pd.ExcelWriter(output / output_path_template.format(case_name=case_name), engine='openpyxl') as writer:
-                for gene in gene_groups:
-                    file = pd.read_csv(meta_file_dict[gene][case_name], sep='\t', header=[0, 1, 2])
-                    file.to_excel(writer, sheet_name=summary_tab_template.format(gene=gene), freeze_panes=(3, 0), index=True, merge_cells=True)
+        # for case_name, file_path in file_dict.items():
+        #     # write info (original file path, time stamp) to excel sheet as header
+        #     # output and style
+        #     with pd.ExcelWriter(output / output_path_template.format(case_name=case_name), engine='openpyxl') as writer:
+        #         for gene in gene_groups:
+        #             file = pd.read_csv(meta_file_dict[gene][case_name], sep='\t', header=[0, 1, 2])
+        #             file.to_excel(writer, sheet_name=summary_tab_template.format(gene=gene), freeze_panes=(3, 0), index=True, merge_cells=True)

@@ -88,6 +88,31 @@ class PseudoGeneCalculator():
         self.true_exception = {true_gene: config[self.gene_group][self.ref][true_gene]['exception'] for true_gene in self.true_gene}
         self.pseudo_exception = {pseudo_gene: config[self.gene_group][self.ref][pseudo_gene]['exception'] for pseudo_gene in self.pseudo_gene}
 
+    def get_aligned_region(self):
+        read_genomic_ranges = list()
+        ref_genomic_ranges = list()
+
+        for true_gene in self.true_gene:
+            for pseudo_gene in self.pseudo_gene:
+                sam_path = self.config["data"]["sam"]["aligned_seq"].format(true_gene=true_gene, pseudo_gene=pseudo_gene, genome_ver=self.ref)
+                samfile = pysam.AlignmentFile(sam_path, 'rb')
+                ref_chr, ref_start, _ = analyze_ref_seq_name(samfile.get_reference_name(0))
+
+                for read in samfile.fetch():
+                    exon_num, read_chr, read_start, _ = analyze_read_seq_name(read.query_name) # with chr as prefix
+                       
+                    genomic_read_start = read_start + read.query_alignment_start
+                    genomic_read_end = read_start + read.query_alignment_end
+                    genomic_ref_start = ref_start + read.reference_start
+                    genomic_ref_end = ref_start + read.reference_end
+
+                    read_genomic_range = (ref_chr, genomic_read_start, genomic_read_end)
+                    ref_genomic_range = (ref_chr, genomic_ref_start, genomic_ref_end)
+                    read_genomic_ranges.append(read_genomic_range)
+                    ref_genomic_ranges.append(ref_genomic_range)
+
+                return read_genomic_ranges, ref_genomic_ranges
+
     def get_gene_region(self):
         """
         read fasta files created by query_alignment() to get true gene(s) and pseudo gene(s) region information, specifically
@@ -122,10 +147,10 @@ class PseudoGeneCalculator():
 
         ref_chr, ref_start, _ = analyze_ref_seq_name(samfile.get_reference_name(0))
         for read in samfile.fetch():
+            exon_num, read_chr, read_start, _ = analyze_read_seq_name(read.query_name) # with chr as prefix
+
             for read_offset, ref_offset, ref_base in read.get_aligned_pairs(matches_only=True, with_seq=True):
                 read_seq = read.get_forward_sequence()
-
-                exon_num, read_chr, read_start, _ = analyze_read_seq_name(read.query_name) # with chr as prefix
                 read_base = BASE_MATCH[read_seq[::-1][read_offset]] if read.is_reverse else read_seq[read_offset]
 
                 read_pos = read_start + read_offset
@@ -237,23 +262,26 @@ class PseudoGeneCalculator():
         self.executor = ThreadPoolExecutor(max_workers=ncpus)
 
         # self.get_gene_region_output_future = self.executor.submit(self.get_gene_region)
-        self.true_gene_region, self.pseudo_gene_region = self.get_gene_region()
-        alignment_info, self.true_gene_pos, self.pseudo_gene_pos = self.get_alignment_info()
-        self.aa_change_future = self.executor.submit(self.handle_nirvana, alignment_info=alignment_info)
+        # self.true_gene_region, self.pseudo_gene_region = self.get_gene_region()
+        self.aligned_true_gene_ranges, self.aligned_pseudo_gene_ranges = self.get_aligned_region()
 
-        self.alignment_table = self.construct_alignment_table(alignment_info)
+        # alignment_info, self.true_gene_pos, self.pseudo_gene_pos = self.get_alignment_info()
+        # self.aa_change_future = self.executor.submit(self.handle_nirvana, alignment_info=alignment_info)
+
+        # self.alignment_table = self.construct_alignment_table(alignment_info)
 
         # aa_change = self.handle_nirvana(alignment_info)
 
         # self.alignment_table = pd.concat([alignment_table, aa_change], axis=1)
 
-        self.control_gene_cov = np.zeros((self.n_bam, len(C.POSITIONS[self.ref]["GENES"])))
-        self.gene_region_cov = np.zeros((self.n_bam, self.num_gene))
+        # self.control_gene_cov = np.zeros((self.n_bam, len(C.POSITIONS[self.ref]["GENES"])))
+        # self.gene_region_cov = np.zeros((self.n_bam, self.num_gene))
+        self.aligned_gene_regions = np.zeros((self.n_bam, self.num_gene, len(self.aligned_true_gene_ranges)))
 
-        l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
-        l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
-        self.true_table = np.zeros((self.n_bam, l1, 4), dtype=np.int64)
-        self.pseudo_table = np.zeros((self.n_bam, l2, 4), dtype=np.int64)
+        # l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
+        # l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
+        # self.true_table = np.zeros((self.n_bam, l1, 4), dtype=np.int64)
+        # self.pseudo_table = np.zeros((self.n_bam, l2, 4), dtype=np.int64)
 
         # ----------------------- RawArray
         # import ctypes
@@ -379,25 +407,28 @@ class PseudoGeneCalculator():
         4. ture/pseudo alignment points
         """
         bam_file = PseudoBam(file_path)
-        l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
-        l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
-        self.true_table[idx, ...] = np.zeros((l1, 4), dtype=np.int64)
-        self.pseudo_table[idx, ...] = np.zeros((l2, 4), dtype=np.int64)
+        # l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
+        # l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
+        # self.true_table[idx, ...] = np.zeros((l1, 4), dtype=np.int64)
+        # self.pseudo_table[idx, ...] = np.zeros((l2, 4), dtype=np.int64)
 
-        self.control_gene_cov[idx, ...] = bam_file.get_cov_ranges(C.POSITIONS[self.ref]["GENES"])
-        self.gene_region_cov[idx, ...] = bam_file.get_cov_ranges_(self.true_gene_region, self.pseudo_gene_region)
+        # self.control_gene_cov[idx, ...] = bam_file.get_cov_ranges(C.POSITIONS[self.ref]["GENES"])
+        # self.gene_region_cov[idx, ...] = bam_file.get_cov_ranges_(self.true_gene_region, self.pseudo_gene_region)
 
-        offset = 0
-        for true_gene in self.true_gene:
-            for j, range in enumerate(self.true_gene_pos[true_gene]):
-                self.true_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[1:3])).squeeze()
-            offset += len(self.true_gene_pos[true_gene])
+        self.aligned_gene_regions[idx, 0, ...] = bam_file.get_aligned_cov(self.aligned_true_gene_ranges)
+        self.aligned_gene_regions[idx, 1, ...] = bam_file.get_aligned_cov(self.aligned_pseudo_gene_ranges)
 
-        offset = 0
-        for pseudo_gene in self.pseudo_gene:
-            for j, range in enumerate(self.pseudo_gene_pos[pseudo_gene]):
-                self.pseudo_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[:2])).squeeze()
-            offset += len(self.pseudo_gene_pos[pseudo_gene])
+        # offset = 0
+        # for true_gene in self.true_gene:
+        #     for j, range in enumerate(self.true_gene_pos[true_gene]):
+        #         self.true_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[1:3])).squeeze()
+        #     offset += len(self.true_gene_pos[true_gene])
+
+        # offset = 0
+        # for pseudo_gene in self.pseudo_gene:
+        #     for j, range in enumerate(self.pseudo_gene_pos[pseudo_gene]):
+        #         self.pseudo_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[:2])).squeeze()
+        #     offset += len(self.pseudo_gene_pos[pseudo_gene])
 
     def calculation_worker(self, idx):
         """ 
@@ -474,11 +505,11 @@ class PseudoGeneCalculator():
             future.result()
 
         # cov_ratio = average target gene(s) coverage over average control genes coverage
-        self.cov_ratio = self.gene_region_cov.sum(axis=1).reshape((self.n_bam, 1)) / self.control_gene_cov
+        # self.cov_ratio = self.gene_region_cov.sum(axis=1).reshape((self.n_bam, 1)) / self.control_gene_cov
         # self.std_k = np.std(self.H_ik, axis=0)
         # self.std_i = np.std(self.H_ik, axis=1)
-        self.mean_cov_ratio = self.cov_ratio.sum(axis=0) / self.n_bam
-        self.scale_factor = (self.cov_ratio / self.mean_cov_ratio).sum(axis=1) / len(C.POSITIONS[self.ref]["GENES"])
+        # self.mean_cov_ratio = self.cov_ratio.sum(axis=0) / self.n_bam
+        # self.scale_factor = (self.cov_ratio / self.mean_cov_ratio).sum(axis=1) / len(C.POSITIONS[self.ref]["GENES"])
 
         # ---------------------- multiprocessing - RawArray
         # self.cov_ratio = gene_region_cov.sum(axis=1).reshape((self.n_bam, 1)) / control_gene_cov
@@ -487,23 +518,29 @@ class PseudoGeneCalculator():
         # self.true_table = true_table
         # self.pseudo_table = pseudo_table
 
-        for future in concurrent.futures.as_completed([self.aa_change_future]):
-            aa_change = self.aa_change_future.result()
-        self.alignment_table = pd.concat([self.alignment_table, aa_change], axis=1)
+        # for future in concurrent.futures.as_completed([self.aa_change_future]):
+        #     aa_change = self.aa_change_future.result()
+        # self.alignment_table = pd.concat([self.alignment_table, aa_change], axis=1)
         # prioritize exception points in alignment table
 
-        control_gene_cov = pd.DataFrame(self.control_gene_cov, index=self.file_dict.values(), columns=C.POSITIONS[self.ref]["GENES"].keys())
-        control_gene_cov.to_csv(f'{self.gene_group}_control_gene_cov.csv')
-        gene_region_cov = pd.DataFrame(self.gene_region_cov, index=self.file_dict.values(), columns=self.true_gene + self.pseudo_gene)
-        gene_region_cov.to_csv(f'{self.gene_group}_gene_region_cov.csv')
+        # control_gene_cov = pd.DataFrame(self.control_gene_cov, index=self.file_dict.values(), columns=C.POSITIONS[self.ref]["GENES"].keys())
+        # control_gene_cov.to_csv(f'{self.gene_group}_control_gene_cov.csv')
+        # gene_region_cov = pd.DataFrame(self.gene_region_cov, index=self.file_dict.values(), columns=self.true_gene + self.pseudo_gene)
+        # gene_region_cov.to_csv(f'{self.gene_group}_gene_region_cov.csv')
+
+        r = range(0, len(self.aligned_true_gene_ranges))
+        c = pd.MultiIndex.from_product([['True Gene', 'Pseudogene'], r])
+        aligned_gene_region_cov = pd.DataFrame(self.aligned_gene_regions.reshape((self.n_bam, self.num_gene * len(self.aligned_true_gene_ranges))), index=self.file_dict.values(), columns=c)
+        aligned_gene_region_cov.to_csv(f'{self.gene_group}_aligned_gene_region.csv')
         # np.savetxt(f'{self.gene_group}_control_gene_cov.csv', self.control_gene_cov,  fmt='%3f', delimiter=',')
         # np.savetxt(f'{self.gene_group}_gene_region_cov.csv', self.gene_region_cov, fmt='%3f', delimiter=',')
 
         # with ThreadPoolExecutor(max_workers=self.ncpus) as executor:
-        fs = {
-            self.executor.submit(self.calculation_worker, idx=idx): case_name for idx, case_name in enumerate(self.file_dict.keys())
-        }
-        caseName_to_outputFilePath_mapping = {
-            fs[future]: future.result() for future in concurrent.futures.as_completed(fs)
-        }
-        return caseName_to_outputFilePath_mapping, self.scale_factor
+        # fs = {
+        #     self.executor.submit(self.calculation_worker, idx=idx): case_name for idx, case_name in enumerate(self.file_dict.keys())
+        # }
+        # caseName_to_outputFilePath_mapping = {
+        #     fs[future]: future.result() for future in concurrent.futures.as_completed(fs)
+        # }
+        # return caseName_to_outputFilePath_mapping, self.scale_factor
+        return None, None

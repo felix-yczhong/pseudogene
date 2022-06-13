@@ -19,3 +19,11 @@ class PseudoBam(Bam):
         for j, (chr, start, end) in enumerate(pseudo_gene_ranges):
             _, cov[len(true_gene_ranges) + j] = get_total_depth(self.samfile, chr, start, end)
         return cov
+
+    def get_aligned_cov(self, ranges):
+        cov = np.zeros(len(ranges))
+        for i, (chr, start, end) in enumerate(ranges):
+            _, cov[i] = get_total_depth(self.samfile, chr, start, end)
+        return cov
+        
+
