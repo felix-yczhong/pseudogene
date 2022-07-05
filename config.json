@@ -1,5 +1,5 @@
 {
-    "gene_group": ["SMN", "GBA"],
+    "gene_group": ["HBA"],
     "output": "pseudogene_{case_name}.xlsx",
     "summary_tab": "{gene}",
 
@@ -12,6 +12,7 @@
         },
 
         "BLAST+_path": "/home/user/ncbi-blast-2.13.0+/bin/blastn",
+        "BLAST+_command": "blastn -task megablast -query {true_exon_file_name} -subject {pseudo_seq_file_name} -out {blast_output} -outfmt '17 SQ' -parse_deflines",
         "nirvana_path": "/raid/Nirvana-3.11.1"
     },
 
@@ -29,14 +30,16 @@
         
         "fasta":
         {
-            "true_seq": "data/fasta/{gene}_{genome_ver}.fa",
-            "pseudo_seq": "data/fasta/{gene}_{genome_ver}.fa",
-            "true_exon": "data/fasta/{gene}_{genome_ver}_exon.fa"
+            "true_seq": "data/fasta/{gene}_{genome_ver}.fasta",
+            "pseudo_seq": "data/fasta/{gene}_{genome_ver}.fasta",
+            "true_exon": "data/fasta/{gene}_{genome_ver}_exon.fasta",
+            "all_true_exon": "data/fasta/{gene_group}_true_exon_{genome_ver}.fasta",
+            "all_pseudo_seq": "data/fasta/{gene_group}_pseudo_{genome_ver}.fasta"
         },
 
         "sam":
         {
-            "aligned_seq": "data/sam/{true_gene}_{pseudo_gene}_{genome_ver}.bam"
+            "aligned_seq": "data/sam/{gene_group}_{genome_ver}.bam"
         }
     },
 
@@ -87,6 +90,38 @@
             "GBAP1": {
                 "gene_id": "ENSG00000160766.15",
                 "transcript_id": "ENST00000368374.5",
+                "exception": null
+            }
+        }
+    },
+
+    "HBA":
+    {
+        "true_gene": ["HBA1"],
+        "pseudo_gene": ["HBA2", "HBAP1"],
+        "hg19": 
+        {
+
+        },
+        "hg38": 
+        {
+            "HBA1": {
+                "NM_number": "NM_000558.5",
+                "gene_id": "ENSG00000206172.8",
+                "transcript_id": "ENST00000320868.9",
+                "exception": null
+            },
+
+            "HBA2": {
+                "NM_number": "NM_000517.6",
+                "gene_id": "ENSG00000188536.13",
+                "transcript_id": "ENST00000251595.11",
+                "exception": null
+            },
+
+            "HBAP1": {
+                "gene_id": "ENSG00000225323.1",
+                "transcript_id": "ENST00000438841.1",
                 "exception": null
             }
         }
