@@ -1,5 +1,5 @@
 {
-    "gene_group": ["HBA"],
+    "gene_group": ["SMN", "GBA"],
     "output": "pseudogene_{case_name}.xlsx",
     "summary_tab": "{gene}",
 
@@ -97,8 +97,8 @@
 
     "HBA":
     {
-        "true_gene": ["HBA1"],
-        "pseudo_gene": ["HBA2", "HBAP1"],
+        "true_gene": ["HBB"],
+        "pseudo_gene": ["HBA1", "HBA2", "HBAP1"],
         "hg19": 
         {
 
@@ -116,6 +116,13 @@
                 "NM_number": "NM_000517.6",
                 "gene_id": "ENSG00000188536.13",
                 "transcript_id": "ENST00000251595.11",
+                "exception": null
+            },
+
+            "HBB": {
+                "NM_number": "NM_000518.5", 
+                "gene_id": "ENSG00000244734.4",
+                "transcript_id": "ENST00000335295.4",
                 "exception": null
             },
 

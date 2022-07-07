@@ -22,12 +22,14 @@ def extract_case_name(input):
     return input.split(sep='.', maxsplit=1)[0]
 
 def analyze_read_seq_name(name):
-    exon_num, chr, start, end = name.replace('-', ':').split(':')
-    exon_num, start, end = int(exon_num), int(start), int(end)
+    gene_name, exon_num, chr, start, end = name.split('-')
+    start, end = int(start), int(end)
+    if exon_num != '':
+        exon_num = int(exon_num)
     return exon_num, chr, start, end
 
 def analyze_ref_seq_name(name):
-    chr, start, end = name.replace('-', ':').split(':')
+    gene_name, exon_num, chr, start, end = name.split('-')
     start, end = int(start), int(end)
     return chr, start, end
 

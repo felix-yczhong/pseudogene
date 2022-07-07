@@ -99,16 +99,17 @@ class PseudoGeneCalculator():
         :return pseudo_gene_info: a list of (chromosome, start, end) tuple in the same order of self.pseudo_gene
         """
         def read_fasta(true_gene, ref):
-            with open(self.config['data']['fasta']['true_seq'].format(gene=true_gene, genome_ver=ref)) as fasta:
+            input_path = self.config['data']['fasta']['true_seq'].format(gene=true_gene, genome_ver=ref)
+            with open(input_path) as fasta:
                 header = fasta.readline()
             ma = prog.match(header)
             if ma is None:
-                raise ValueError(f"Cannot recognize {true_gene}_{self.ref}.fa header")
+                raise ValueError(f"Cannot recognize {input_path} header")
             chr, start, end = ma.group('chr', 'start', 'end')
             start, end = convert_coordiante_fasta_to_sam(int(start), int(end))
             return chr, start, end
         
-        pattern = ">(?P<chr>chr[XY\d]+):(?P<start>[\d]+)-(?P<end>[\d]+)"
+        pattern = ">(?P<gene_name>[\w]+[\d]*)-(?P<exon_num>[\d]*)-(?P<chr>chr[XY\d]+)-(?P<start>[\d]+)-(?P<end>[\d]+)"
         prog = re.compile(pattern)
 
         true_gene_region = [read_fasta(true_gene, self.ref) for true_gene in self.true_gene]
@@ -183,7 +184,7 @@ class PseudoGeneCalculator():
 
         for true_gene in self.true_gene:
             for pseudo_gene in self.pseudo_gene:
-                sam_path = self.config["data"]["sam"]["aligned_seq"].format(true_gene=true_gene, pseudo_gene=pseudo_gene, genome_ver=self.ref)
+                sam_path = self.config["data"]["sam"]["aligned_seq"].format(gene_group=self.gene_group, true_gene=true_gene, pseudo_gene=pseudo_gene, genome_ver=self.ref)
 
                 read_genomic_ranges, ref_genomic_ranges = self.get_aligned_pos(sam_path, self.true_exception[true_gene], self.pseudo_exception[pseudo_gene])
 
@@ -211,7 +212,9 @@ class PseudoGeneCalculator():
 
             run_nirvana(tool_path, vcf_file.name, nirvana_output.name, self.ref)
 
-            # will have problem with multiple true genes
+            if len(self.true_gene) > 1:
+                raise NotImplementedError('More than 1 true genes is not supported.')
+            
             NM_num = self.config[self.gene_group][self.ref][self.true_gene[0]]["NM_number"]
             o = pathlib.Path(os.path.abspath(nirvana_output.name))
             aa_change = get_aa_change_from_nirvana(NM_num, vcf, o)

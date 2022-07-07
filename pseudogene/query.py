@@ -156,9 +156,11 @@ def query_alignment(context, reference, gene_groups, debug):
         # save entire true gene
         for true_gene, (chr, start, end) in true_gene_transcript.items():
             true_ref = subprocess.run(['samtools', 'faidx', config["tools"]["fasta_loc"][reference], f'{chr}:{start}-{end}'], stdout=subprocess.PIPE).stdout.decode()
+            header = f'>{true_gene}--{chr}-{start}-{end}\n'
+            true_ref = true_ref.split('\n', maxsplit=1)[1]
             output_path = config["data"]["fasta"]["true_seq"].format(gene=true_gene, genome_ver=reference)
             with open(output_path, 'w+') as f:
-                f.write(true_ref)
+                f.write(header + true_ref)
         subprocess.run(['samtools', 'faidx', output_path])
 
         # save entire pseudo gene
@@ -167,10 +169,10 @@ def query_alignment(context, reference, gene_groups, debug):
             for pseudo_gene, (chr, start, end) in pseudo_gene_transcript.items():
                 pseudo_ref = subprocess.run(['samtools', 'faidx', config["tools"]["fasta_loc"][reference], f'{chr}:{start}-{end}'], stdout=subprocess.PIPE).stdout.decode()
                 output_path = config["data"]["fasta"]["pseudo_seq"].format(gene=pseudo_gene, genome_ver=reference)
-                with open(output_path, 'w+') as f:
-                    f.write(pseudo_ref)
                 pseudo_ref = pseudo_ref.split('\n', maxsplit=1)[1]
                 header = f'>{pseudo_gene}--{chr}-{start}-{end}\n'
+                with open(output_path, 'w+') as f:
+                    f.write(header + pseudo_ref)
                 pseudo_file.write(header + pseudo_ref)
                 subprocess.run(['samtools', 'faidx', output_path])
             subprocess.run(['samtools', 'faidx', pseudo_file_path])
