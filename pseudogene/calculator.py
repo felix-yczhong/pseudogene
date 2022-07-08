@@ -79,16 +79,19 @@ class PseudoGeneCalculator():
         for read in samfile.fetch():
             for read_offset, ref_offset, ref_base in read.get_aligned_pairs(matches_only=True, with_seq=True):
                 ref_gene_name, ref_exon_num, ref_chr, ref_start, _ = analyze_seq_name(read.reference_name)
-                read_seq = read.get_forward_sequence()
+                ref_pos = ref_start + ref_offset
 
                 read_gene_name, read_exon_num, read_chr, read_start, _ = analyze_seq_name(read.query_name) # with chr as prefix
+                read_seq = read.get_forward_sequence()
                 read_base = BASE_MATCH[read_seq[::-1][read_offset]] if read.is_reverse else read_seq[read_offset]
 
-                read_pos = read_start + read_offset
-                ref_pos = ref_start + ref_offset
-                # if ref_pos == 155235203:
-                #     print(ref_start, ref_offset)
-                #     print(read_start, read_offset)
+                # check if hard-clipped at the begining of the read
+                clipped_num = 0
+                for (cigar_op, op_length) in read.cigartuples:
+                    if cigar_op == 5: # 5 = hard-clipping
+                        clipped_num += op_length
+                    break
+                read_pos = read_start + read_offset + clipped_num
 
                 is_true_exception = (t := self.true_exception[ref_gene_name]) is not None and (ref_chr, ref_pos) in t.keys()
                 is_pseudo_exception = (p := self.pseudo_exception[read_gene_name]) is not None and (read_chr, read_pos) in p.keys()
@@ -104,13 +107,19 @@ class PseudoGeneCalculator():
         for read in samfile.fetch():
             for read_offset, ref_offset, ref_base in read.get_aligned_pairs(matches_only=True, with_seq=True):
                 ref_gene_name, ref_exon_num, ref_chr, ref_start, _ = analyze_seq_name(read.reference_name)
-                read_seq = read.get_forward_sequence()
+                ref_pos = ref_start + ref_offset
 
                 read_gene_name, read_exon_num, read_chr, read_start, _ = analyze_seq_name(read.query_name) # with chr as prefix
+                read_seq = read.get_forward_sequence()
                 read_base = BASE_MATCH[read_seq[::-1][read_offset]] if read.is_reverse else read_seq[read_offset]
 
-                read_pos = read_start + read_offset
-                ref_pos = ref_start + ref_offset
+                # check if hard-clipped at the begining of the read
+                clipped_num = 0
+                for (cigar_op, op_length) in read.cigartuples:
+                    if cigar_op == 5: # 5 = hard-clipping
+                        clipped_num += op_length
+                    break
+                read_pos = read_start + read_offset + clipped_num
 
                 if (ref_gene_name, ref_chr, ref_pos) in points:
                     is_true_exception = (t := self.true_exception[ref_gene_name]) is not None and (ref_chr, ref_pos) in t.keys()
