@@ -9,7 +9,6 @@ import multiprocessing
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from collections import defaultdict
-from weakref import ref
 
 import numpy as np
 import pandas as pd
@@ -19,61 +18,7 @@ import smaca.constants as C
 import pseudogene
 from pseudogene.bam import PseudoBam
 from pseudogene.utils import *
-
-def read_input_RawArray(file_path, ref, true_gene_region, pseudo_gene_region, true_gene_pos, pseudo_gene_pos, true_genes, pseudo_genes, idx):
-    bam_file = PseudoBam(file_path)
-
-    global control_gene_cov, gene_region_cov, true_table, pseudo_table
-    control_gene_cov[idx, ...] = bam_file.get_cov_ranges(C.POSITIONS[ref]["GENES"])
-    gene_region_cov[idx, ...] = bam_file.get_cov_ranges_(true_gene_region, pseudo_gene_region)
-
-    offset = 0
-    for true_gene in true_genes:
-        for j, range in enumerate(true_gene_pos[true_gene]):
-            true_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[1:3])).squeeze()
-        offset += len(true_gene_pos[true_gene])
-
-    offset = 0
-    for pseudo_gene in pseudo_genes:
-        for j, range in enumerate(pseudo_gene_pos[pseudo_gene]):
-            pseudo_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[:2])).squeeze()
-        offset += len(pseudo_gene_pos[pseudo_gene])
-
-def read_input_CopyOnWrite(file_path, ref, true_gene_region, pseudo_gene_region, true_gene_pos, pseudo_gene_pos, true_genes, pseudo_genes):
-    """
-    1. calculate H_ik
-    2. calclulate c_ix (true/pseudo gene cov)
-
-    3. true/pseudo gene cov (per case)
-    4. ture/pseudo alignment points
-    """
-    bam_file = PseudoBam(file_path)
-
-    num_gene = len(true_genes) + len(pseudo_genes)
-
-    control_gene_cov = np.zeros((len(C.POSITIONS[ref]["GENES"])))
-    gene_region_cov = np.zeros((num_gene))
-
-    l1 = sum([len(true_gene_pos[true_gene]) for true_gene in true_genes])
-    l2 = sum([len(pseudo_gene_pos[pseudo_gene]) for pseudo_gene in pseudo_genes])
-    true_table = np.zeros((l1, 4), dtype=np.int64)
-    pseudo_table = np.zeros((l2, 4), dtype=np.int64)
-
-    control_gene_cov = bam_file.get_cov_ranges(C.POSITIONS[ref]["GENES"])
-    gene_region_cov = bam_file.get_cov_ranges_(true_gene_region, pseudo_gene_region)
-
-    offset = 0
-    for true_gene in true_genes:
-        for j, range in enumerate(true_gene_pos[true_gene]):
-            true_table[offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[1:3])).squeeze()
-        offset += len(true_gene_pos[true_gene])
-
-    offset = 0
-    for pseudo_gene in pseudo_genes:
-        for j, range in enumerate(pseudo_gene_pos[pseudo_gene]):
-            pseudo_table[offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[:2])).squeeze()
-        offset += len(pseudo_gene_pos[pseudo_gene])
-    return control_gene_cov, gene_region_cov, true_table, pseudo_table
+from pseudogene.worker import *
 
 # calculator for a certain gene
 class PseudoGeneCalculator():
@@ -116,92 +61,112 @@ class PseudoGeneCalculator():
         pseudo_gene_region = [read_fasta(pseudo_gene, self.ref) for pseudo_gene in self.pseudo_gene]
         return true_gene_region, pseudo_gene_region
 
-    def get_aligned_pos(self, file_path, true_exception, pseudo_exception):
-        samfile = pysam.AlignmentFile(file_path, 'rb')
-        read_genomic_ranges = list()
-        ref_genomic_ranges = list()
+    def construct_alignment_table(self):
+        """
+        read bam files created by query_alignment() to get true gene(s) and pseudo gene(s) alignment information and contruct alignment table
 
-        ref_chr, ref_start, _ = analyze_ref_seq_name(samfile.get_reference_name(0))
+        :param self:
+        :return alignment_table: a pandas dataframe where each row represents how true gene(s) alignment position(s) align to pseudo gene(s) alignment position(s)
+        :return true_gene_pos: a dictionary with each true gene name as key and a list of their alignment points as value
+        :return pseudo_gene_pos: a dictionary with each pseudo gene name as key and a list of their alignment points as value
+        """
+        sam_path = self.config["data"]["sam"]["aligned_seq"].format(gene_group=self.gene_group, genome_ver=self.ref)
+        samfile = pysam.AlignmentFile(sam_path, 'rb')
+
+        points = set()
+
+        # get all alignment pos we are interested
         for read in samfile.fetch():
             for read_offset, ref_offset, ref_base in read.get_aligned_pairs(matches_only=True, with_seq=True):
+                ref_gene_name, ref_exon_num, ref_chr, ref_start, _ = analyze_seq_name(read.reference_name)
                 read_seq = read.get_forward_sequence()
 
-                exon_num, read_chr, read_start, _ = analyze_read_seq_name(read.query_name) # with chr as prefix
+                read_gene_name, read_exon_num, read_chr, read_start, _ = analyze_seq_name(read.query_name) # with chr as prefix
+                read_base = BASE_MATCH[read_seq[::-1][read_offset]] if read.is_reverse else read_seq[read_offset]
+
+                read_pos = read_start + read_offset
+                ref_pos = ref_start + ref_offset
+                # if ref_pos == 155235203:
+                #     print(ref_start, ref_offset)
+                #     print(read_start, read_offset)
+
+                is_true_exception = (t := self.true_exception[ref_gene_name]) is not None and (ref_chr, ref_pos) in t.keys()
+                is_pseudo_exception = (p := self.pseudo_exception[read_gene_name]) is not None and (read_chr, read_pos) in p.keys()
+                if read_base.upper() != ref_base.upper() or is_true_exception or is_pseudo_exception:
+                    point = (ref_gene_name, ref_chr, ref_pos)
+                    points.add(point)
+ 
+        # record info of the interesting alignment pos
+        # we are doing this in two parts becauase of multiple reads alignment
+        true_gene_pos = defaultdict(lambda: list())
+        pseudo_gene_pos = defaultdict(lambda: list())
+        alignment_relation = dict()
+        for read in samfile.fetch():
+            for read_offset, ref_offset, ref_base in read.get_aligned_pairs(matches_only=True, with_seq=True):
+                ref_gene_name, ref_exon_num, ref_chr, ref_start, _ = analyze_seq_name(read.reference_name)
+                read_seq = read.get_forward_sequence()
+
+                read_gene_name, read_exon_num, read_chr, read_start, _ = analyze_seq_name(read.query_name) # with chr as prefix
                 read_base = BASE_MATCH[read_seq[::-1][read_offset]] if read.is_reverse else read_seq[read_offset]
 
                 read_pos = read_start + read_offset
                 ref_pos = ref_start + ref_offset
 
-                if read_base.upper() != ref_base.upper() or \
-                   true_exception is not None and (read_chr, read_pos) in true_exception.keys() or \
-                   pseudo_exception is not None and (ref_chr, ref_pos) in pseudo_exception.keys():
-                    read_genomic_pos = (exon_num, read_chr, read_pos, read_base)
-                    read_genomic_ranges.append(read_genomic_pos)
+                if (ref_gene_name, ref_chr, ref_pos) in points:
+                    is_true_exception = (t := self.true_exception[ref_gene_name]) is not None and (ref_chr, ref_pos) in t.keys()
+                    is_pseudo_exception = (p := self.pseudo_exception[read_gene_name]) is not None and (read_chr, read_pos) in p.keys()
 
-                    if true_exception is not None and (read_chr, read_pos) in true_exception.keys():
-                        alt = true_exception[(read_chr, read_pos)]
-                    elif pseudo_exception is not None and (ref_chr, ref_pos) in pseudo_exception.keys():
-                        alt = pseudo_exception[(ref_chr, ref_pos)]
+                    # if is_true_exception:
+                    #     ref_alt = a.upper() if (a:= t[(ref_chr, ref_pos)]) != '' else ref_base.upper()
+                    # else:
+                    #     ref_alt = ref_base.upper()
+                    # if is_pseudo_exception:
+                    #     read_alt = a.upper() if (a:= p[(read_chr, read_pos)]) != '' else read_base.upper()
+                    # else:
+                    #     read_alt = read_base.upper()
+                    ref_alt = ref_base.upper()
+                    if is_true_exception:
+                        read_alt = a.upper() if (a:= t[(ref_chr, ref_pos)]) != '' else ref_base.upper()
+                    elif is_pseudo_exception:
+                        read_alt = a.upper() if (a:= p[(read_chr, read_pos)]) != '' else read_base.upper()
                     else:
-                        alt = ref_base.upper()
-                    if alt == '':
-                        alt = ref_base.upper()
+                        read_alt = read_base.upper()
 
-                    ref_genomic_pos = (ref_chr, ref_pos, ref_base.upper(), alt)
-                    ref_genomic_ranges.append(ref_genomic_pos)
+                    true_gene_pos[ref_gene_name].append((ref_chr, ref_pos, ref_alt))
+                    pseudo_gene_pos[read_gene_name].append((read_chr, read_pos, read_alt))
 
-        return read_genomic_ranges, ref_genomic_ranges
+                    alignment_relation[(ref_chr, ref_pos, read_alt)] = [ref_gene_name, ref_exon_num, ref_base.upper(), ref_alt, \
+                                                                        read_gene_name, read_pos, read_base.upper()]
 
-    def construct_alignment_table(self, alignments):
-        # use DFS for connected component for many-many alignment relations
-        pos_col = ['exon', 'chr', 'pos', 'ref']
+        # early return for parallelization / faster execution?
+        aa_change_table = self.query_amino_acid_change(alignment_relation)
+        for row in aa_change_table.itertuples():
+            alignment_relation[(row._1, row.POS, row.ALT)].append(row.aa_change)
 
-        for true_gene in self.true_gene:
-            true_to_pseudos_alignment = []
-            true_gene_col_names = itertools.product(['true'], [true_gene], pos_col)
+        # construct alignment table
+        # will have problem during join if there are more than 1 true genes
+        pos_col = ['exon', 'chr', 'pos', 'ref', 'alt', 'aa_change']
+        rows = defaultdict(lambda: defaultdict(lambda: list()))
+        for (ref_chr, ref_pos, read_alt), \
+            (ref_gene_name, ref_exon_num, ref_base, ref_alt, \
+            read_gene_name, read_pos, read_base, aa_change) in alignment_relation.items():
 
-            for pseudo_gene in self.pseudo_gene:
-                pseudo_gene_col_names = itertools.product(['pseudo'], [pseudo_gene], pos_col[1:])
-                col_names = pd.MultiIndex.from_tuples(itertools.chain(true_gene_col_names, pseudo_gene_col_names))
-                true_to_pseudo_alignment = pd.DataFrame([true_pos + pseudo_pos[:3] for (true_pos, pseudo_pos) in alignments[true_gene][pseudo_gene]], columns=col_names)
-                true_to_pseudos_alignment.append(true_to_pseudo_alignment)
-            join_col_names = list(pd.MultiIndex.from_product([['true'], [true_gene], pos_col]))
-            true_to_pseudos_alignment = functools.reduce(lambda left, right: left.merge(right, how='outer', left_on=join_col_names, right_on=join_col_names), true_to_pseudos_alignment)
-            return true_to_pseudos_alignment
-        
-    def get_alignment_info(self):
-        """
-        read bam files created by query_alignment() to get true gene(s) and pseudo gene(s) alignment information
+            row = [ref_exon_num, ref_chr, ref_pos, ref_base, ref_alt, read_chr, read_pos, read_base, read_alt, aa_change]
+            rows[ref_gene_name][read_gene_name].append(row)
 
-        :param self:
-        :return true_gene_pos: a dictionary with each true gene name as key and a list of their alignment points as value
-        :return pseudo_gene_pos: a dictionary with each pseudo gene name as key and a list of their alignment points as value
-        :return alignment_table: a pandas dataframe where each row represents how true gene(s) alignment point(s) align to pseudo gene(s) alignment point(s)
-        """
-        genomic_range_alignments = defaultdict(lambda: defaultdict(lambda: list()))
-        true_genomic_ranges = defaultdict(lambda: set())
-        pseudo_genomic_ranges = defaultdict(lambda: set())
+        tables = list()
+        for ref_gene_name, v in rows.items():
+            for read_gene_name, r in v.items():
+                true_col_names = itertools.product(['True'], [ref_gene_name], pos_col[:-1])
+                pseudo_col_names = itertools.product(['Pseudo'], [read_gene_name], pos_col[1:])
+                col_names = pd.MultiIndex.from_tuples(itertools.chain(true_col_names, pseudo_col_names))
+                table = pd.DataFrame(r, columns=col_names)
+                tables.append(table)
+        alignment_table = functools.reduce(lambda left, right: left.merge(right, how='outer', left_on=true_col_names, right_on=true_col_names), tables)
+        return alignment_table, true_gene_pos, pseudo_gene_pos
 
-        for true_gene in self.true_gene:
-            for pseudo_gene in self.pseudo_gene:
-                sam_path = self.config["data"]["sam"]["aligned_seq"].format(gene_group=self.gene_group, true_gene=true_gene, pseudo_gene=pseudo_gene, genome_ver=self.ref)
-
-                read_genomic_ranges, ref_genomic_ranges = self.get_aligned_pos(sam_path, self.true_exception[true_gene], self.pseudo_exception[pseudo_gene])
-
-                # collect genomic ranges
-                true_genomic_ranges[true_gene] |= set(read_genomic_ranges)
-                pseudo_genomic_ranges[pseudo_gene] |= set(ref_genomic_ranges)
-
-                # build alignment info
-                genomic_range_alignments[true_gene][pseudo_gene] = list(zip(read_genomic_ranges, ref_genomic_ranges))
-
-        true_genomic_ranges = {key: sorted(list(value), reverse=True) for key, value in true_genomic_ranges.items()}
-        pseudo_genomic_ranges = {key: sorted(list(value), reverse=True) for key, value in pseudo_genomic_ranges.items()}
-
-        return genomic_range_alignments, true_genomic_ranges, pseudo_genomic_ranges
-
-    def handle_nirvana(self, alignment_info):
-        vcf = create_vcf(alignment_info, self.gene_group, self.true_gene, self.pseudo_gene)
+    def query_amino_acid_change(self, alignment_relation):
+        vcf = create_vcf(alignment_relation, self.gene_group)
         with tempfile.NamedTemporaryFile(mode='r+', dir=self.tmp_dir) as vcf_file, \
              tempfile.NamedTemporaryFile(mode='r+', dir=self.tmp_dir) as nirvana_output:
             vcf_file.write(VCF_HEADER)
@@ -218,7 +183,9 @@ class PseudoGeneCalculator():
             NM_num = self.config[self.gene_group][self.ref][self.true_gene[0]]["NM_number"]
             o = pathlib.Path(os.path.abspath(nirvana_output.name))
             aa_change = get_aa_change_from_nirvana(NM_num, vcf, o)
-        return aa_change
+            aa_change_table = pd.concat([vcf, aa_change], axis=1)
+            aa_change_table = aa_change_table[['#CHROM', 'POS', 'REF', 'ALT', 'aa_change']]
+        return aa_change_table
 
     def __init__(self, file_dict, ref, config, gene_group, ncpus=os.cpu_count(), tmp_dir=None, debug=False):
         """
@@ -237,72 +204,74 @@ class PseudoGeneCalculator():
         if len(self.pseudo_gene) != 1:
             raise NotImplementedError('algorithm for more than one pseudo gene is not fully implemented!')
 
-        self.executor = ThreadPoolExecutor(max_workers=ncpus)
+        # self.executor = ProcessPoolExecutor(max_workers=ncpus)
 
-        # self.get_gene_region_output_future = self.executor.submit(self.get_gene_region)
+        # --------------- serialized
         self.true_gene_region, self.pseudo_gene_region = self.get_gene_region()
-        alignment_info, self.true_gene_pos, self.pseudo_gene_pos = self.get_alignment_info()
-        self.aa_change_future = self.executor.submit(self.handle_nirvana, alignment_info=alignment_info)
-
-        self.alignment_table = self.construct_alignment_table(alignment_info)
-
-        # aa_change = self.handle_nirvana(alignment_info)
-
-        # self.alignment_table = pd.concat([alignment_table, aa_change], axis=1)
-
+        self.alignment_table, self.true_gene_pos, self.pseudo_gene_pos = self.construct_alignment_table()
+        
         self.control_gene_cov = np.zeros((self.n_bam, len(C.POSITIONS[self.ref]["GENES"])))
         self.gene_region_cov = np.zeros((self.n_bam, self.num_gene))
+        
+        self.true_gene_pos_len = sum(len(pos) for pos in self.true_gene_pos.values())
+        self.pseudo_gene_pos_len = sum(len(pos) for pos in self.pseudo_gene_pos.values())
+        
+        self.true_table = np.zeros((self.n_bam, self.true_gene_pos_len, 4), dtype=np.int64)
+        self.pseudo_table = np.zeros((self.n_bam, self.pseudo_gene_pos_len, 4), dtype=np.int64)
 
-        l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
-        l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
-        self.true_table = np.zeros((self.n_bam, l1, 4), dtype=np.int64)
-        self.pseudo_table = np.zeros((self.n_bam, l2, 4), dtype=np.int64)
+        # --------------- Raw Array
+        # self.true_gene_region, self.pseudo_gene_region = self.get_gene_region()
+        # self.alignment_table, self.true_gene_pos, self.pseudo_gene_pos = self.build_alignment_table()
 
-        # ----------------------- RawArray
         # import ctypes
         # global control_gene_cov
         # control_gene_cov = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * len(C.POSITIONS[self.ref]["GENES"]))).reshape((self.n_bam, len(C.POSITIONS[self.ref]["GENES"])))
         # global gene_region_cov
         # gene_region_cov = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * self.num_gene)).reshape((self.n_bam, self.num_gene))
+        
+        # self.true_gene_pos_len = sum(len(pos) for pos in self.true_gene_pos.values())
+        # self.pseudo_gene_pos_len = sum(len(pos) for pos in self.pseudo_gene_pos.values())
+
         # global true_table
-        # true_table = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * l1 * 4)).reshape((self.n_bam, l1, 4))
+        # true_table = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * self.true_gene_pos_len * 4)).reshape((self.n_bam, l1, 4))
         # global pseudo_table
-        # pseudo_table = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * l2 * 4)).reshape((self.n_bam, l2, 4))
+        # pseudo_table = np.asarray(multiprocessing.RawArray(ctypes.c_double, self.n_bam * self.pseudo_gene_pos_len * 4)).reshape((self.n_bam, l2, 4))
 
     def build_raw_table(self, idx):
-        """
-        combine alignment table and alignment position info
-        """
-        # need to handle multi-index
-        i = ['exon', 'chr', 'pos', 'ref']
-        alignment_table = self.alignment_table
-        offset = 0
-        for true_gene in self.true_gene:
-            join_index = list(pd.MultiIndex.from_product([['true'], [true_gene], i]))
-            pos_info = pd.DataFrame(self.true_gene_pos[true_gene], columns=i)
-            cov_info = pd.DataFrame(self.true_table[idx, offset: offset + len(self.true_gene_pos[true_gene]), :], columns=BASES)
-            to_merged = pd.concat([pos_info, cov_info], axis=1, keys=[('true', true_gene), ('true', true_gene)])
-            alignment_table = alignment_table.merge(to_merged, how='left', left_on=join_index, right_on=join_index)
-            offset += len(self.true_gene_pos[true_gene])
+        pos_col = ['exon', 'chr', 'pos', 'ref', 'alt', 'aa_change']
+        sub_pos_col = ['chr', 'pos', 'alt']
+
+        alignment_table = self.alignment_table.copy()
 
         offset = 0
-        for pseudo_gene in self.pseudo_gene:
-            join_index = list(pd.MultiIndex.from_product([['pseudo'], [pseudo_gene], i[1:]]))
-            pos_info = pd.DataFrame([ele[0:3] for ele in self.pseudo_gene_pos[pseudo_gene]], columns=i[1:])
-            cov_info = pd.DataFrame(self.pseudo_table[idx, offset: offset + len(self.pseudo_gene_pos[pseudo_gene]), :], columns=BASES)
-            to_merged = pd.concat([pos_info, cov_info], axis=1, keys=[('pseudo', pseudo_gene), ('pseudo', pseudo_gene)])
+        for true_gene, pos in self.true_gene_pos.items():
+            join_index = list(pd.MultiIndex.from_product([['True'], [true_gene], sub_pos_col]))
+            pos_info = pd.DataFrame(pos, columns=sub_pos_col)
+            cov_info = pd.DataFrame(self.true_table[idx, offset: offset + len(pos), :], columns=BASES)
+            to_merged = pd.concat([pos_info, cov_info], axis=1, keys=[('True', true_gene), ('True', true_gene)])
             alignment_table = alignment_table.merge(to_merged, how='left', left_on=join_index, right_on=join_index)
-            offset += len(self.pseudo_gene_pos[pseudo_gene])
+            offset += len(pos)
+
+        offset = 0
+        for pseudo_gene, pos in self.pseudo_gene_pos.items():
+            join_index = list(pd.MultiIndex.from_product([['Pseudo'], [pseudo_gene], sub_pos_col]))
+            pos_info = pd.DataFrame(pos, columns=sub_pos_col)
+            cov_info = pd.DataFrame(self.pseudo_table[idx, offset: offset + len(pos), :], columns=BASES)
+            to_merged = pd.concat([pos_info, cov_info], axis=1, keys=[('Pseudo', pseudo_gene), ('Pseudo', pseudo_gene)])
+            alignment_table = alignment_table.merge(to_merged, how='left', left_on=join_index, right_on=join_index)
+            offset += len(pos)
 
         # re-organize table index
-        idx = list(pd.MultiIndex.from_product([['true'], self.true_gene, i + BASES])) + list(pd.MultiIndex.from_product([['pseudo'], self.pseudo_gene, i[1:] + BASES])) + [('ratio', 'ratio', 'aa_change')]
-        alignment_table = alignment_table[idx]
+        ridx = list(pd.MultiIndex.from_product([['True'], self.true_gene, pos_col[:-1] + BASES])) + \
+               list(pd.MultiIndex.from_product([['Pseudo'], self.pseudo_gene, pos_col[1:] + BASES]))
+        alignment_table = alignment_table[ridx]
+        alignment_table.sort_values(by=[('True', self.true_gene[0], 'pos')], inplace=True)
 
         return alignment_table
 
     def calculate_sum(self, raw_table):
-        true_idx = [pd.MultiIndex.from_product([['true'], [true_gene], BASES]) for true_gene in self.true_gene]
-        pseudo_idx = [pd.MultiIndex.from_product([['pseudo'], [pseudo_gene], BASES]) for pseudo_gene in self.pseudo_gene]
+        true_idx = [pd.MultiIndex.from_product([['True'], [true_gene], BASES]) for true_gene in self.true_gene]
+        pseudo_idx = [pd.MultiIndex.from_product([['Pseudo'], [pseudo_gene], BASES]) for pseudo_gene in self.pseudo_gene]
 
         sum_each_base = sum(raw_table[col].to_numpy() for col in true_idx + pseudo_idx)
         sum_df = pd.DataFrame(sum_each_base, columns=pd.MultiIndex.from_product([["Sum"], ["bases"], BASES]))
@@ -318,16 +287,16 @@ class PseudoGeneCalculator():
             def get_refs(row):
                 refs = defaultdict(lambda: list())
                 for true_gene in self.true_gene:
-                    chr, pos = row[('true', true_gene, 'chr')], row[('true', true_gene, 'pos')]
+                    chr, pos = row[('True', true_gene, 'chr')], row[('True', true_gene, 'pos')]
                     if (e := true_exception[true_gene]) is not None and (base := e.get((chr, pos))) is not None:
                         refs[base] # make sure base in the key of refs, but not adding new elements to its value
-                    ref = row[('true', true_gene, 'ref')]
+                    ref = row[('True', true_gene, 'ref')]
                     refs[ref].append(true_gene)
                 for pseudo_gene in self.pseudo_gene:
-                    chr, pos = row[('pseudo', pseudo_gene, 'chr')], row[('pseudo', pseudo_gene, 'pos')]
+                    chr, pos = row[('Pseudo', pseudo_gene, 'chr')], row[('Pseudo', pseudo_gene, 'pos')]
                     if (e := pseudo_exception[pseudo_gene]) is not None and (base := e.get((chr, pos))) is not None:
                         refs[base] # make sure base in the key of refs, but not adding new elements to its value
-                    ref = row[('pseudo', pseudo_gene, 'ref')]
+                    ref = row[('Pseudo', pseudo_gene, 'ref')]
                     refs[ref].append(pseudo_gene)
 
                 for key, value in refs.items():
@@ -374,33 +343,24 @@ class PseudoGeneCalculator():
         return ratio_table
 
     def read_input(self, idx, file_path):
-        """
-        1. calculate H_ik
-        2. calclulate c_ix (true/pseudo gene cov)
-
-        3. true/pseudo gene cov (per case)
-        4. ture/pseudo alignment points
-        """
         bam_file = PseudoBam(file_path)
-        l1 = sum([len(self.true_gene_pos[true_gene]) for true_gene in self.true_gene])
-        l2 = sum([len(self.pseudo_gene_pos[pseudo_gene]) for pseudo_gene in self.pseudo_gene])
-        self.true_table[idx, ...] = np.zeros((l1, 4), dtype=np.int64)
-        self.pseudo_table[idx, ...] = np.zeros((l2, 4), dtype=np.int64)
+        self.true_table[idx, ...] = np.zeros((self.true_gene_pos_len, 4), dtype=np.int64)
+        self.pseudo_table[idx, ...] = np.zeros((self.pseudo_gene_pos_len, 4), dtype=np.int64)
 
         self.control_gene_cov[idx, ...] = bam_file.get_cov_ranges(C.POSITIONS[self.ref]["GENES"])
         self.gene_region_cov[idx, ...] = bam_file.get_cov_ranges_(self.true_gene_region, self.pseudo_gene_region)
 
         offset = 0
-        for true_gene in self.true_gene:
-            for j, range in enumerate(self.true_gene_pos[true_gene]):
-                self.true_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[1:3])).squeeze()
-            offset += len(self.true_gene_pos[true_gene])
+        for true_gene, pos in self.true_gene_pos.items():
+            for j, pos_info in enumerate(pos):
+                self.true_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(pos_info[:2])).squeeze()
+            offset += len(pos)
 
         offset = 0
-        for pseudo_gene in self.pseudo_gene:
-            for j, range in enumerate(self.pseudo_gene_pos[pseudo_gene]):
-                self.pseudo_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(range[:2])).squeeze()
-            offset += len(self.pseudo_gene_pos[pseudo_gene])
+        for pseudo_gene, pos in self.pseudo_gene_pos.items():
+            for j, pos_info in enumerate(pos):
+                self.pseudo_table[idx, offset + j, :] = np.asarray(bam_file.get_alignment_cov_util(pos_info[:2])).squeeze()
+            offset += len(pos)  
 
     def calculation_worker(self, idx):
         """ 
@@ -411,15 +371,6 @@ class PseudoGeneCalculator():
         sum_df = self.calculate_sum(raw_table)
         ratio_df = self.calculate_ratio(raw_table, sum_df, self.scale_factor[idx])
         summary = pd.concat([ratio_df, sum_df, raw_table], axis=1)
-
-        # re-order table column
-        aa_change_col = summary.pop(('ratio', 'ratio', 'aa_change'))
-        summary.insert(0, aa_change_col.name, aa_change_col)
-
-        # re-order table row
-        reorder_idx = list(pd.MultiIndex.from_product([['true'], [self.true_gene[0]], ['exon', 'chr', 'pos']]))
-        # summary_exception = summary[]
-        summary = summary.sort_values(by=reorder_idx)
 
         f = tempfile.NamedTemporaryFile(dir=self.tmp_dir, delete=False)
         summary.to_csv(f, sep='\t', index=False)
@@ -432,81 +383,118 @@ class PseudoGeneCalculator():
         3. read bam, get true/pseudo specific region coverage -> merge with alignment table -> make sum -> make ratio -> output
         """
 
-        # ---------------------- multiprocessing - copy-on-wirte
+        # --------------- read inputs
+
+        # --------------- read inputs --------------- serialized
+        for idx, file_path in enumerate(self.file_dict.values()):
+            self.read_input(idx, file_path)
+
+        # --------------- read inputs --------------- multithreaded
+        # with ThreadPoolExecutor(max_worker=self.ncpus) as executor:
+        #     cs = [executor.submit(self.read_input, idx=idx, file_path=file_path) for idx, file_path in enumerate(self.file_dict.values())]
+        #     for future in concurrent.futures.as_completed(cs):
+        #         future.result()
+
+        # --------------- read inputs --------------- multiprocessing - Copy On Write
         # with ProcessPoolExecutor(max_workers=self.ncpus) as executor:
-        #     futures = dict()
-        #     for idx, file_path in enumerate(self.file_dict.values()):
-        #         future = executor.submit(read_input_CopyOnWrite, file_path=file_path,
-        #                                                             ref=self.ref, 
-        #                                                             true_gene_region=self.true_gene_region,
-        #                                                             pseudo_gene_region=self.pseudo_gene_region, 
-        #                                                             true_gene_pos=self.true_gene_pos, 
-        #                                                             pseudo_gene_pos=self.pseudo_gene_pos, 
-        #                                                             true_genes=self.true_gene, 
-        #                                                             pseudo_genes=self.pseudo_gene)
-        #         futures[future] = idx
+        #     futures = {
+        #         executor.submit(read_input_CopyOnWrite, 
+        #                         file_path=file_path,
+        #                         ref=self.ref, 
+        #                         true_gene_region=self.true_gene_region,
+        #                         pseudo_gene_region=self.pseudo_gene_region, 
+        #                         true_gene_pos=self.true_gene_pos, 
+        #                         pseudo_gene_pos=self.pseudo_gene_pos, 
+        #                         true_genes=self.true_gene, 
+        #                         pseudo_genes=self.pseudo_gene): idx
+        #         for idx, file_path in enumerate(self.file_dict.values())
+        #     }
+
         #     for future in concurrent.futures.as_completed(futures):
         #         idx = futures[future]
         #         self.control_gene_cov[idx, ...], self.gene_region_cov[idx, ...], self.true_table[idx, ...], self.pseudo_table[idx, ...] = future.result()
 
-        # ---------------------- multiprocessing - RawArray
+        # --------------- read inputs --------------- multiprocessing - Raw Array
         # with ProcessPoolExecutor(max_workers=self.ncpus) as executor:
-        #     futures = dict()
-        #     for idx, file_path in enumerate(self.file_dict.values()):
-        #         future = executor.submit(read_input_RawArray, file_path=file_path,
-        #                                                             ref=self.ref, 
-        #                                                             true_gene_region=self.true_gene_region,
-        #                                                             pseudo_gene_region=self.pseudo_gene_region, 
-        #                                                             true_gene_pos=self.true_gene_pos, 
-        #                                                             pseudo_gene_pos=self.pseudo_gene_pos, 
-        #                                                             true_genes=self.true_gene, 
-        #                                                             pseudo_genes=self.pseudo_gene,
-        #                                                             idx=idx)
-        #         futures[future] = idx
+        #     futures = [
+        #         executor.submit(read_input_RawArray, 
+        #                         file_path=file_path,
+        #                         ref=self.ref, 
+        #                         true_gene_region=self.true_gene_region,
+        #                         pseudo_gene_region=self.pseudo_gene_region, 
+        #                         true_gene_pos=self.true_gene_pos, 
+        #                         pseudo_gene_pos=self.pseudo_gene_pos, 
+        #                         true_genes=self.true_gene, 
+        #                         pseudo_genes=self.pseudo_gene,
+        #                         idx=idx)
+        #         for idx, file_path in enumerate(self.file_dict.values())
+        #     ]
         #     for future in concurrent.futures.as_completed(futures):
-        #         future.result()
+        #         futures[future]
 
-        # ---------------------- serialized 
-        # for idx, file_path in enumerate(self.file_dict.values()):
-        #     self.read_input(idx, file_path)
-
-        # ---------------------- multithreaded
-        # with ThreadPoolExecutor(max_workers=self.ncpus) as executor:
-        fs = [self.executor.submit(self.read_input, idx=idx, file_path=file_path) for idx, file_path in enumerate(self.file_dict.values())]
-        for future in concurrent.futures.as_completed(fs):
-            future.result()
-
-        # cov_ratio = average target gene(s) coverage over average control genes coverage
+        # Others
         self.cov_ratio = self.gene_region_cov.sum(axis=1).reshape((self.n_bam, 1)) / self.control_gene_cov
-        # self.std_k = np.std(self.H_ik, axis=0)
-        # self.std_i = np.std(self.H_ik, axis=1)
         self.mean_cov_ratio = self.cov_ratio.sum(axis=0) / self.n_bam
         self.scale_factor = (self.cov_ratio / self.mean_cov_ratio).sum(axis=1) / len(C.POSITIONS[self.ref]["GENES"])
 
-        # ---------------------- multiprocessing - RawArray
+        # Raw Array
+        # global control_gene_cov, gene_region_cov, true_table, pseudo_table
         # self.cov_ratio = gene_region_cov.sum(axis=1).reshape((self.n_bam, 1)) / control_gene_cov
         # self.mean_cov_ratio = self.cov_ratio.sum(axis=0) / self.n_bam
         # self.scale_factor = (self.cov_ratio / self.mean_cov_ratio).sum(axis=1) / len(C.POSITIONS[self.ref]["GENES"])
-        # self.true_table = true_table
-        # self.pseudo_table = pseudo_table
 
-        for future in concurrent.futures.as_completed([self.aa_change_future]):
-            aa_change = self.aa_change_future.result()
-        self.alignment_table = pd.concat([self.alignment_table, aa_change], axis=1)
-        # prioritize exception points in alignment table
+        # --------------- calculation --------------- serialized
+        fs = {
+            case_name: self.calculation_worker(idx) for idx, case_name in enumerate(self.file_dict.keys())
+        }
 
-        control_gene_cov = pd.DataFrame(self.control_gene_cov, index=self.file_dict.values(), columns=C.POSITIONS[self.ref]["GENES"].keys())
-        control_gene_cov.to_csv(f'{self.gene_group}_control_gene_cov.csv')
-        gene_region_cov = pd.DataFrame(self.gene_region_cov, index=self.file_dict.values(), columns=self.true_gene + self.pseudo_gene)
-        gene_region_cov.to_csv(f'{self.gene_group}_gene_region_cov.csv')
+        # --------------- calculation --------------- multithreaded
+        # with ThreadPoolExecutor(max_worker=self.ncpus) as executor:           
+        #     futures = {
+        #         executor.submit(self.calculation_worker, idx=idx): case_name for idx, case_name in enumerate(self.file_dict.keys())
+        #     }
+
+        #     fs = {
+        #         futures[future]: future.result() for future in concurrent.futures.as_completed(futures)
+        #     }
+
+        # --------------- calculation --------------- multiprocessing - Copy On Write
+        # with ProcessPoolExecutor(max_workers=self.ncpus) as executor:
+        #     futures = {
+        #         executor.submit(calculation_CopyOnWrite, 
+        #                         idx=idx,
+        #                         true_genes=self.true_gene,
+        #                         pseudo_genes=self.pseudo_gene,
+        #                         alignment_table=self.alignment_table,
+        #                         true_gene_pos=self.true_gene_pos,
+        #                         pseudo_gene_pos=self.pseudo_gene_pos,
+        #                         scale_factor=self.scale_factor,
+        #                         num_gene=self.num_gene,
+        #                         true_exception=self.true_exception,
+        #                         pseudo_exception=self.pseudo_exception,
+        #                         tmp_dir=self.tmp_dir): case_name 
+        #         for idx, case_name in enumerate(self.file_dict.keys())
+        #     }
+        #     fs = {
+        #         futures[future]: future.result() for future in concurrent.futures.as_completed(futures)
+        #     }
+
+        # --------------- calculation --------------- multiprocessing - Raw Array
+        # with ProcessPoolExecutor(max_workers=self.ncpus) as executor:
+        #     futures = {
+        #         self.executor.submit(self.calculation_worker, idx=idx): case_name for idx, case_name in enumerate(self.file_dict.keys())
+        #     }
+
+        #     fs = {
+        #         futures[future]: future.result() for future in concurrent.futures.as_completed(futures)
+        #     }
+        #     return fs, self.scale_factor
+
+        # control_gene_cov = pd.DataFrame(self.control_gene_cov, index=self.file_dict.values(), columns=C.POSITIONS[self.ref]["GENES"].keys())
+        # control_gene_cov.to_csv(f'{self.gene_group}_control_gene_cov.csv')
+        # gene_region_cov = pd.DataFrame(self.gene_region_cov, index=self.file_dict.values(), columns=self.true_gene + self.pseudo_gene)
+        # gene_region_cov.to_csv(f'{self.gene_group}_gene_region_cov.csv')
         # np.savetxt(f'{self.gene_group}_control_gene_cov.csv', self.control_gene_cov,  fmt='%3f', delimiter=',')
         # np.savetxt(f'{self.gene_group}_gene_region_cov.csv', self.gene_region_cov, fmt='%3f', delimiter=',')
 
-        # with ThreadPoolExecutor(max_workers=self.ncpus) as executor:
-        fs = {
-            self.executor.submit(self.calculation_worker, idx=idx): case_name for idx, case_name in enumerate(self.file_dict.keys())
-        }
-        caseName_to_outputFilePath_mapping = {
-            fs[future]: future.result() for future in concurrent.futures.as_completed(fs)
-        }
-        return caseName_to_outputFilePath_mapping, self.scale_factor
+        return fs, self.scale_factor

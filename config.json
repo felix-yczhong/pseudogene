@@ -1,5 +1,5 @@
 {
-    "gene_group": ["SMN", "GBA"],
+    "gene_group": ["SMA", "GaucherDisease"],
     "output": "pseudogene_{case_name}.xlsx",
     "summary_tab": "{gene}",
 
@@ -43,7 +43,7 @@
         }
     },
 
-    "SMN": 
+    "SMA": 
     {
         "true_gene": ["SMN1"],
         "pseudo_gene": ["SMN2"],
@@ -69,7 +69,7 @@
         }      
     },
 
-    "GBA": 
+    "GaucherDisease": 
     {
         "true_gene": ["GBA"],
         "pseudo_gene": ["GBAP1"],
@@ -95,7 +95,7 @@
         }
     },
 
-    "HBA":
+    "Thalassemia":
     {
         "true_gene": ["HBB"],
         "pseudo_gene": ["HBA1", "HBA2", "HBAP1"],

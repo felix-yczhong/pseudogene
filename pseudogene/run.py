@@ -112,21 +112,20 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
         meta_file_dict = dict()
         scale_factors = dict()
 
-        # --------------- multiprocessing ------------------------
-        results = {
-            executor.submit(worker, file_dict=file_dict, reference=reference, config=config, gene_group=gene_group, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug)
-            : gene_group for gene_group in gene_groups
-        }
+        # --------------- serialized for debugging
+        for gene_group in gene_groups:
+            cal = PseudoGeneCalculator(file_dict, reference, config, gene_group, ncpus=ncpus, tmp_dir=tmp_dir, debug=debug)
+            meta_file_dict[gene_group], scale_factors[gene_group] = cal.calculate()
 
-        for result in concurrent.futures.as_completed(results):
-            gene_group = results[result]
-            meta_file_dict[gene_group], scale_factors[gene_group] = result.result()
+        # --------------- multiprocessing
+        # results = {
+        #     executor.submit(worker, file_dict=file_dict, reference=reference, config=config, gene_group=gene_group, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug)
+        #     : gene_group for gene_group in gene_groups
+        # }
 
-        # ---------------- single process to evaluate performance -------------------
-        # gene_groups = ['GBA']
-        # for gene_group in gene_groups:
-        #     result = PseudoGeneCalculator(file_dict, reference, config, gene_group=gene_group, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug).calculate()
-        #     meta_file_dict[gene_group], scale_factors[gene_group] = result
+        # for result in concurrent.futures.as_completed(results):
+        #     gene_group = results[result]
+        #     meta_file_dict[gene_group], scale_factors[gene_group] = result.result()
 
         # write out scale factors
         with pd.ExcelWriter(output / output_path_template.format(case_name='scale_factors')) as writer:

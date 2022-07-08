@@ -21,17 +21,12 @@ def extract_case_name(input):
     input = input.rsplit(sep='/', maxsplit=1)[1]
     return input.split(sep='.', maxsplit=1)[0]
 
-def analyze_read_seq_name(name):
+def analyze_seq_name(name):
     gene_name, exon_num, chr, start, end = name.split('-')
     start, end = int(start), int(end)
     if exon_num != '':
         exon_num = int(exon_num)
-    return exon_num, chr, start, end
-
-def analyze_ref_seq_name(name):
-    gene_name, exon_num, chr, start, end = name.split('-')
-    start, end = int(start), int(end)
-    return chr, start, end
+    return gene_name, exon_num, chr, start, end
 
 def get_project_root() -> pathlib.Path:
     return pathlib.Path(__file__).parent.parent
@@ -161,19 +156,19 @@ def run_annovar(case_name, panel):
     os.system(command)
     #TODO return annovar target file name/path
 
-def create_vcf(alignment_info, case_name, true_genes, pseudo_genes):
-    columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', f'{case_name}']
-    sub_columns = ['QUAL', 'FILTER', 'INFO' , 'FORMAT', f'{case_name}']
+def create_vcf(alignment_relation, gene_group):
+    columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', f'{gene_group}']
+    sub_columns = columns[5:]
 
     rows = list()
-    for true_gene in true_genes:
-        for pseudo_gene in pseudo_genes:
-            for (true, pseudo) in alignment_info[true_gene][pseudo_gene]:
-                _, chr, pos, ref = true
-                _, _, _, alt = pseudo
-                df = pd.DataFrame([chr, pos, '.', ref, alt] + ['.'] * len(sub_columns), index=columns).transpose()
-                rows.append(df)
-    return pd.concat(rows, axis=0)
+    for (ref_chr, ref_pos, read_alt), \
+        (ref_gene_name, ref_exon_num, ref_base, ref_alt, \
+            read_gene_name, read_pos, read_base) in alignment_relation.items():
+        rows.append([ref_chr, ref_pos, '.', ref_base, read_alt] + ['.'] * len(sub_columns))
+    df = pd.DataFrame(rows, columns=columns)
+    df.drop_duplicates(inplace=True)
+    df.sort_values(by=columns[:5], inplace=True, ignore_index=True)
+    return df
 
 def get_aa_change_from_nirvana(NM_num, vcf, output_path):
     output_path = output_path.parent / (output_path.name + '.json')
@@ -228,6 +223,6 @@ def get_aa_change_from_nirvana(NM_num, vcf, output_path):
         return "Not Found"
 
     aa_change = vcf.apply(find_func, axis=1, args=[NM_num])
-    aa_change = pd.DataFrame(aa_change, columns=[('ratio', 'ratio', 'aa_change')])
+    aa_change = pd.DataFrame(aa_change, columns=['aa_change'])
     aa_change.reset_index(drop=True, inplace=True)
     return aa_change
