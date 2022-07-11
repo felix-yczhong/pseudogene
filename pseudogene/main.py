@@ -37,7 +37,7 @@ def main(context):
                 if exception is None or len(exception) == 0:
                     exception = None
                 elif any(len(e) != 3 for e in exception):
-                    raise ValueError("exception point format error")
+                    raise ValueError("exception position format error")
                 else:
                     exception = {tuple(e[:2]): e[2] for e in exception}
                 config[gene_group][genome_ver][true_gene]['exception'] = exception
@@ -47,15 +47,16 @@ def main(context):
                 if exception is None or len(exception) == 0:
                     exception = None
                 elif any(len(e) != 3 for e in exception):
-                    raise ValueError("exception point format error")
+                    raise ValueError("exception position format error")
                 else:
                     exception = {tuple(e[:2]): e[2] for e in exception}
                 config[gene_group][genome_ver][pseudo_gene]['exception'] = exception
+
     # load config.json and initialize context
     context.ensure_object(dict)
     context.obj['config'] = config
 
-    # initialize logging
+    #TODO initialize logging 
 
 main.add_command(build_db)
 main.add_command(query_alignment)

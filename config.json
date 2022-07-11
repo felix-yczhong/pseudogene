@@ -1,6 +1,7 @@
 {
     "gene_group": ["SMA", "GaucherDisease"],
     "output": "pseudogene_{case_name}.xlsx",
+    "debug_output": "pseudogene_{case_name}.tsv",
     "summary_tab": "{gene}",
 
     "tools": 

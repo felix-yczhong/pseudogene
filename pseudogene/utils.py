@@ -162,8 +162,8 @@ def create_vcf(alignment_relation, gene_group):
 
     rows = list()
     for (ref_chr, ref_pos, read_alt), \
-        (ref_gene_name, ref_exon_num, ref_base, ref_alt, \
-            read_gene_name, read_pos, read_base) in alignment_relation.items():
+        (ref_gene_name, ref_exon_num, ref_base, \
+            read_gene_name, read_pos, read_base, is_exception) in alignment_relation.items():
         rows.append([ref_chr, ref_pos, '.', ref_base, read_alt] + ['.'] * len(sub_columns))
     df = pd.DataFrame(rows, columns=columns)
     df.drop_duplicates(inplace=True)

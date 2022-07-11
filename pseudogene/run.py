@@ -39,14 +39,20 @@ def style_func(df, true_gene, pseudo_gene):
     df.style.highlight_max(axis=0).to_excel('styled.xlsx', engine='openpyxl')
     return df
 
-def worker(file_dict, reference, config, gene_group, tmp_dir, ncpus, debug):
+def worker(test_file_dict, control_file_dict, reference, config, gene_group, output_path, tmp_dir, ncpus, debug):
     # p = subprocess.Popen(
     #     [path_of_exe, task_id, task_delay],
     #     stdout=subprocess.PIPE,
     #     stderr=subprocess.PIPE,        
     # )
-    return PseudoGeneCalculator(file_dict, reference, config, gene_group=gene_group, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug).calculate()
+    return PseudoGeneCalculator(test_file_dict, control_file_dict, reference, config, gene_group, output_path, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug).calculate()
 
+def output_summary(output_path, sheet_name, gene_groups, meta_file_dict):
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        for gene_group in gene_groups:
+            file = pd.read_csv(meta_file_dict[gene_group], sep='\t', header=[0, 1, 2])
+            # TODO: style df before output
+            file.to_excel(writer, sheet_name=sheet_name.format(gene=gene_group), freeze_panes=(3, 0), index=True, merge_cells=True)
 
 @click.command()
 @click.option('--ncpus', 
@@ -57,41 +63,44 @@ def worker(file_dict, reference, config, gene_group, tmp_dir, ncpus, debug):
 @click.option('-r', '--reference',
               default="hg38",
               type=click.Choice(["hg19", "hg38"]),
-              help='reference genome that was used for alignment',
+              help='reference genome used for alignment',
               show_default=True)
 @click.option('--debug',
               is_flag=True,
               default=False,
               type=bool,
-              help='write out scale factors and all sequence alignment details instead of just summary. Do NOT run debug mode with large number of genes.')
+              help='write out details such as scale factors, control genes average coverage and true gene & pseudogene average coverage.')
+@click.option('--profile_path',
+              type=click.Path(exists=True, dir_okay=False, writable=True, path_type=pathlib.Path),
+              default=pathlib.Path(os.getcwd()) / 'profile.txt',
+              show_default=True,
+              nargs=1,
+              help='specify output path of profiling result, not used if profiling is off')
 @click.option('--profile',
               is_flag=True,
               default=False,
               type=bool,
-              help='enable profiling')
+              help='enable profiling.')
 @click.option('-o', '--output',
               type=click.Path(exists=True, file_okay=False, writable=True, path_type=pathlib.Path),
               default=pathlib.Path(os.getcwd()),
               nargs=1,
               show_default=True,
               help="specify output directory.")
+@click.option('-c', '--control',
+              type=click.Path(exists=True, dir_okay=False, readable=True, path_type=pathlib.Path),
+              required=False,
+              help="takes a file path which contains all control samples' file paths")
 @click.argument("bam_list",
                 type=click.Path(exists=True),
                 nargs=-1,
                 required=True)
 @click.pass_context
-def run(context, bam_list, output, reference, ncpus, debug, profile):
+def run(context, bam_list, control, output, profile, profile_path, reference, ncpus, debug):
     """
     Run Pseudogene calculation tool.
     """
-    print(bam_list, output, debug, reference, ncpus)
-
-    config = context.obj['config']
-    gene_groups = config["gene_group"]
-    output_path_template = config["output"]
-    summary_tab_template = config["summary_tab"]
-
-    file_dict = preprocess_input_files(bam_list)
+    print(bam_list, output, debug, reference, ncpus, profile)
 
     if profile:
         import cProfile, pstats, atexit, io
@@ -101,41 +110,58 @@ def run(context, bam_list, output, reference, ncpus, debug, profile):
             prf.disable()
             print("Profiling completed")
             # ios = io.StringIO()
-            with open('profile.txt', 'w+') as f:
+            with open(profile_path, 'w+') as f:
                 pstats.Stats(prf, stream=f).sort_stats("cumulative").print_stats()
             # print(ios.getvalue())
 
         atexit.register(exit)
 
+    config = context.obj['config']
+    gene_groups = config["gene_group"]
+
+    test_file_dict = preprocess_input_files(bam_list)
+
+    if control is not None:
+        with open(control) as c:
+            control_list = [pathlib.Path(line.strip()) for line in c]
+        for file_path in control_list:
+            if not file_path.exists():
+                raise FileNotFoundError(f'{file_path} not found!')
+            if not file_path.is_file():
+                raise Exception(f'{file_path} is not a file!')
+        control_file_dict = preprocess_input_files(control_list)
+    else:
+        control_file_dict = dict()
+    
     # process pool to combine & output files
-    with tempfile.TemporaryDirectory() as tmp_dir, concurrent.futures.ProcessPoolExecutor(max_workers=min(len(gene_groups), ncpus)) as executor:
-        meta_file_dict = dict()
-        scale_factors = dict()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(gene_groups), ncpus)) as executor:
+            meta_file_dict = dict()
 
-        # --------------- serialized for debugging
-        for gene_group in gene_groups:
-            cal = PseudoGeneCalculator(file_dict, reference, config, gene_group, ncpus=ncpus, tmp_dir=tmp_dir, debug=debug)
-            meta_file_dict[gene_group], scale_factors[gene_group] = cal.calculate()
+            # --------------- serialized for debugging
+            # for gene_group in gene_groups:
+            #     cal = PseudoGeneCalculator(test_file_dict, control_file_dict, reference, config, gene_group, output, ncpus=ncpus, tmp_dir=tmp_dir, debug=debug)
+            #     meta_file_dict[gene_group] = cal.calculate()
 
-        # --------------- multiprocessing
-        # results = {
-        #     executor.submit(worker, file_dict=file_dict, reference=reference, config=config, gene_group=gene_group, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug)
-        #     : gene_group for gene_group in gene_groups
-        # }
+            # --------------- multiprocessing
+            results = {
+                executor.submit(worker, test_file_dict=test_file_dict, control_file_dict=control_file_dict, reference=reference, config=config, gene_group=gene_group, output_path=output, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug)
+                : gene_group for gene_group in gene_groups
+            }
 
-        # for result in concurrent.futures.as_completed(results):
-        #     gene_group = results[result]
-        #     meta_file_dict[gene_group], scale_factors[gene_group] = result.result()
+            for result in concurrent.futures.as_completed(results):
+                gene_group = results[result]
+                meta_file_dict[gene_group] = result.result()
 
-        # write out scale factors
-        with pd.ExcelWriter(output / output_path_template.format(case_name='scale_factors')) as writer:
-            df = pd.concat([pd.Series(scale_factors[gene_group], index=file_dict.keys()) for gene_group in gene_groups], axis=1, keys=gene_groups)
-            df.to_excel(writer, sheet_name=summary_tab_template.format(gene='scale_factors'), freeze_panes=(1, 0))        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=ncpus) as executor:
+            summaries = {
+                executor.submit(output_summary, output_path=output / config["output"].format(case_name=case_name), \
+                                sheet_name=config["summary_tab"], \
+                                gene_groups=gene_groups, meta_file_dict={gene_group: meta_file_dict[gene_group][case_name] for gene_group in gene_groups}) \
+                : case_name for case_name in test_file_dict.keys()
+            }
 
-        for case_name, file_path in file_dict.items():
-            # write info (original file path, time stamp) to excel sheet as header
-            # output and style
-            with pd.ExcelWriter(output / output_path_template.format(case_name=case_name), engine='openpyxl') as writer:
-                for gene in gene_groups:
-                    file = pd.read_csv(meta_file_dict[gene][case_name], sep='\t', header=[0, 1, 2])
-                    file.to_excel(writer, sheet_name=summary_tab_template.format(gene=gene), freeze_panes=(3, 0), index=True, merge_cells=True)
+            for summary in concurrent.futures.as_completed(summaries):
+                case_name = summaries[summary]
+                summary.result()
+                #TODO log completion or incompletion messages

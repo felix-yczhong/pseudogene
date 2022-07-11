@@ -11,7 +11,6 @@ class PseudoBam(Bam):
         return self.samfile.count_coverage(chr, pos, pos + 1, quality_threshold=0)
 
     def get_cov_ranges_(self, true_gene_ranges, pseudo_gene_ranges):
-        # use np.array views to avoid copies
         cov = np.zeros(len(true_gene_ranges) + len(pseudo_gene_ranges))
         for i, (chr, start, end) in enumerate(true_gene_ranges):
             # x = self.samfile.count_coverage(chr, start, end).sum(axis=1) / 4
