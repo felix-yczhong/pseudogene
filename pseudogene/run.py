@@ -40,11 +40,6 @@ def style_func(df, true_gene, pseudo_gene):
     return df
 
 def worker(test_file_dict, control_file_dict, reference, config, gene_group, output_path, tmp_dir, ncpus, debug):
-    # p = subprocess.Popen(
-    #     [path_of_exe, task_id, task_delay],
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE,        
-    # )
     return PseudoGeneCalculator(test_file_dict, control_file_dict, reference, config, gene_group, output_path, tmp_dir=tmp_dir, ncpus=ncpus, debug=debug).calculate()
 
 def output_summary(output_path, sheet_name, gene_groups, meta_file_dict):
@@ -71,7 +66,7 @@ def output_summary(output_path, sheet_name, gene_groups, meta_file_dict):
               type=bool,
               help='write out details such as scale factors, control genes average coverage and true gene & pseudogene average coverage.')
 @click.option('--profile_path',
-              type=click.Path(exists=True, dir_okay=False, writable=True, path_type=pathlib.Path),
+              type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
               default=pathlib.Path(os.getcwd()) / 'profile.txt',
               show_default=True,
               nargs=1,
@@ -135,9 +130,8 @@ def run(context, bam_list, control, output, profile, profile_path, reference, nc
     
     # process pool to combine & output files
     with tempfile.TemporaryDirectory() as tmp_dir:
+        meta_file_dict = dict()
         with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(gene_groups), ncpus)) as executor:
-            meta_file_dict = dict()
-
             # --------------- serialized for debugging
             # for gene_group in gene_groups:
             #     cal = PseudoGeneCalculator(test_file_dict, control_file_dict, reference, config, gene_group, output, ncpus=ncpus, tmp_dir=tmp_dir, debug=debug)

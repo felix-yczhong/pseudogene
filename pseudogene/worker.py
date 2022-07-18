@@ -119,8 +119,7 @@ def calculate_refs(raw_table, true_genes, pseudo_genes):
 
 def calculate_bases(refs, sum_df):
     def get_bases(row):
-        refs = row[('ratio', 'ref')].tolist()
-        bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in refs]
+        bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in row[('ratio', 'ref')]]
         return pd.Series(bases)
     bases = pd.concat([refs, sum_df], axis=1).apply(get_bases, axis=1)
     bases.columns = pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]])
@@ -133,9 +132,6 @@ def get_ratio(row, scale_factor, num_genes):
         return pd.Series(bases)
 
     scaled_ratio = [(base / sum_base) * scale_factor * num_genes * PLOIDY for base in bases] # num_genes need to change in multiple true/pseudogene scenario
-    # min_ele = min([base for base in scaled_ratio if not np.isnan(base)])
-    # multiplier = round(min_ele) / min_ele if min_ele != 0 and round(min_ele) != 0 else 1 # what if 2:0 (min_ele != 0 but rounds to 0)
-    # predicted_ratio = [ele if np.isnan(ele) else round(ele * multiplier) for ele in scaled_ratio]
     predicted_ratio = [ratio if np.isnan(ratio) else round(ratio) for ratio in scaled_ratio]
     
     return pd.Series(predicted_ratio)

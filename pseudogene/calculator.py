@@ -192,6 +192,7 @@ class PseudoGeneCalculator():
 
     def query_amino_acid_change(self, alignment_relation):
         vcf = create_vcf(alignment_relation, self.gene_group)
+        vcf.to_csv('temp.csv')
         with tempfile.NamedTemporaryFile(mode='r+', dir=self.tmp_dir) as vcf_file, \
              tempfile.NamedTemporaryFile(mode='r+', dir=self.tmp_dir) as nirvana_output:
             vcf_file.write(VCF_HEADER)
@@ -335,8 +336,7 @@ class PseudoGeneCalculator():
 
         def calculate_bases(refs, sum_df):
             def get_bases(row):
-                refs = row[('ratio', 'ref')].tolist()
-                bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in refs]
+                bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in row[('ratio', 'ref')]]
                 return pd.Series(bases)
             bases = pd.concat([refs, sum_df], axis=1).apply(get_bases, axis=1)
             bases.columns = pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]])
