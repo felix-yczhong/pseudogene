@@ -11,7 +11,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name='pseudogene',
-    version='1.0.0.dev2',
+    version='1.0.0.dev3',
     packages=find_packages(),
     url='https://github.com/felix-yczhong/pseudogene.git',
     license='GNU General Public License v.3.0',
