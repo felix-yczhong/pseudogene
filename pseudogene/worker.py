@@ -9,9 +9,6 @@ import smaca.constants as C
 from pseudogene.bam import PseudoBam
 from pseudogene.utils import *
 
-def return_list():
-    return list()
-
 def read_input_CopyOnWrite(file_path, ref, \
                             true_gene_region, pseudo_gene_region, \
                             true_gene_pos, pseudo_gene_pos, \
