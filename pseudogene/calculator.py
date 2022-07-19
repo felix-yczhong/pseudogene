@@ -164,7 +164,7 @@ class PseudoGeneCalculator():
 
         true_gene_pos = {key: list(value) for key, value in true_gene_pos.items()}
         pseudo_gene_pos = {key: list(value) for key, value in pseudo_gene_pos.items()}
-        
+
         # early return for parallelization / faster execution?
         aa_change_table = self.query_amino_acid_change(alignment_relation)
         for row in aa_change_table.itertuples():
@@ -310,11 +310,13 @@ class PseudoGeneCalculator():
         true_idx = [pd.MultiIndex.from_product([['True'], [true_gene], BASES]) for true_gene in self.aligned_true_gene]
         pseudo_idx = [pd.MultiIndex.from_product([['Pseudo'], [pseudo_gene], BASES]) for pseudo_gene in self.aligned_pseudo_gene]
 
-        sum_each_base = sum(raw_table[col].to_numpy() for col in true_idx + pseudo_idx)
-        sum_df = pd.DataFrame(sum_each_base, columns=pd.MultiIndex.from_product([["Sum"], ["bases"], BASES]))
-        return sum_df
+        sum_each_base = sum(np.nan_to_num(raw_table[col].to_numpy()) for col in true_idx + pseudo_idx)
+        aligned_num_gene = sum((~np.isnan(raw_table[col].to_numpy())).astype(int)[:, 0].squeeze() for col in true_idx + pseudo_idx)
 
-    def calculate_ratio(self, raw_table, sum_df, scale_factor):
+        sum_df = pd.DataFrame(sum_each_base, columns=pd.MultiIndex.from_product([["Sum"], ["bases"], BASES]))
+        return sum_df, aligned_num_gene
+
+    def calculate_ratio(self, raw_table, sum_df, scale_factor, aligned_num_gene):
         """
         1. get the refs per alignment point (from raw_table)
         2. get the bases sum per alignment point (from sum_df)
@@ -346,31 +348,24 @@ class PseudoGeneCalculator():
             return refs
 
         def calculate_bases(refs, sum_df):
-            def get_bases(row):
-                bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in row[('ratio', 'ref')]]
-                return pd.Series(bases)
-            bases = pd.concat([refs, sum_df], axis=1).apply(get_bases, axis=1)
-            bases.columns = pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]])
+            vfunc = np.vectorize(get_base)
+
+            ref_index = vfunc(refs.to_numpy()).astype(int)
+            sum_arr = sum_df.to_numpy()
+            extended_sum_arr = np.concatenate([sum_arr, np.full((len(sum_arr), 1), np.nan)], axis=1)
+
+            bases_arr = np.take_along_axis(extended_sum_arr, ref_index, axis=1)
+            bases = pd.DataFrame(bases_arr, columns=pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]]))
             return bases
 
         def calculate_sub_ratio(bases, scale_factor, num_genes):
-            def get_ratio(row):
-                bases = row[('ratio', 'bases')].tolist()
-                sum_base = sum(base for base in bases if not np.isnan(base))
-                if sum_base == 0:
-                    return pd.Series(bases)
-
-                scaled_ratio = [(base / sum_base) * scale_factor * num_genes * PLOIDY for base in bases] # num_genes need to change in multiple true/pseudogene scenario
-                predicted_ratio = [ratio if np.isnan(ratio) else round(ratio) for ratio in scaled_ratio]
-                
-                return pd.Series(predicted_ratio)
-            ratio = bases.apply(get_ratio, axis=1)
+            ratio = (bases / np.nansum(bases, axis=1)[:, np.newaxis] * scale_factor * num_genes[:, np.newaxis]).round(0)
             ratio.columns = pd.MultiIndex.from_product([['ratio'], ['Copy Number'], [base[-1] for base in bases.columns]])
             return ratio
 
         refs = calculate_refs(raw_table)
         bases = calculate_bases(refs, sum_df)
-        ratios = calculate_sub_ratio(bases, scale_factor, self.aligned_num_gene)
+        ratios = calculate_sub_ratio(bases, scale_factor, aligned_num_gene)
 
         ratio_table = pd.concat([refs, bases, ratios], axis=1)
         return ratio_table
@@ -401,8 +396,8 @@ class PseudoGeneCalculator():
 
         """
         raw_table = self.build_raw_table(idx)
-        sum_df = self.calculate_sum(raw_table)
-        ratio_df = self.calculate_ratio(raw_table, sum_df, self.scale_factor[idx])
+        sum_df, aligned_num_gene = self.calculate_sum(raw_table)
+        ratio_df = self.calculate_ratio(raw_table, sum_df, self.scale_factor[idx], aligned_num_gene)
         raw_table_without_exception = raw_table.drop(columns=('ratio', 'exception', 'is_exception'))
         is_exception = raw_table[('ratio', 'exception', 'is_exception')]
         summary = pd.concat([is_exception, ratio_df, sum_df, raw_table_without_exception], axis=1)
@@ -517,8 +512,7 @@ class PseudoGeneCalculator():
                                 self.true_gene_pos, self.pseudo_gene_pos, \
                                 self.true_table, self.pseudo_table, \
                                 self.aligned_true_gene, self.aligned_pseudo_gene, \
-                                self.scale_factor, \
-                                self.aligned_num_gene, self.tmp_dir): case_name 
+                                self.scale_factor, self.tmp_dir): case_name 
                 for idx, case_name in enumerate(self.test_file_dict.keys())
             }
             fs = {

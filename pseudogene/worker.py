@@ -84,9 +84,11 @@ def calculate_sum(raw_table, true_genes, pseudo_genes):
     true_idx = [pd.MultiIndex.from_product([['True'], [true_gene], BASES]) for true_gene in true_genes]
     pseudo_idx = [pd.MultiIndex.from_product([['Pseudo'], [pseudo_gene], BASES]) for pseudo_gene in pseudo_genes]
 
-    sum_each_base = sum(raw_table[col].to_numpy() for col in true_idx + pseudo_idx)
+    sum_each_base = sum(np.nan_to_num(raw_table[col].to_numpy()) for col in true_idx + pseudo_idx)
+    aligned_num_gene = sum((~np.isnan(raw_table[col].to_numpy())).astype(int)[:, 0].squeeze() for col in true_idx + pseudo_idx)
+
     sum_df = pd.DataFrame(sum_each_base, columns=pd.MultiIndex.from_product([["Sum"], ["bases"], BASES]))
-    return sum_df
+    return sum_df, aligned_num_gene
 
 def get_refs(row, true_genes, pseudo_genes):
     refs = defaultdict(lambda: list())
@@ -114,28 +116,24 @@ def calculate_refs(raw_table, true_genes, pseudo_genes):
     refs.columns = pd.MultiIndex.from_product([['ratio'], ['ref'], refs.columns])
     return refs
 
+def get_base(base):
+    if isinstance(base, str):
+        return BASE_TO_INDEX_MAPPING[base]
+    return 4
+
 def calculate_bases(refs, sum_df):
-    def get_bases(row):
-        bases = [row[('Sum', 'bases', ref)] if isinstance(ref, str) else None for ref in row[('ratio', 'ref')]]
-        return pd.Series(bases)
-    bases = pd.concat([refs, sum_df], axis=1).apply(get_bases, axis=1)
-    bases.columns = pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]])
+    vfunc = np.vectorize(get_base)
+
+    ref_index = vfunc(refs.to_numpy()).astype(int)
+    sum_arr = sum_df.to_numpy()
+    extended_sum_arr = np.concatenate([sum_arr, np.full((len(sum_arr), 1), np.nan)], axis=1)
+
+    bases_arr = np.take_along_axis(extended_sum_arr, ref_index, axis=1)
+    bases = pd.DataFrame(bases_arr, columns=pd.MultiIndex.from_product([['ratio'], ['bases'], [ref[-1] for ref in refs.columns]]))
     return bases
 
-def get_ratio(row, scale_factor, num_genes):
-    bases = row[('ratio', 'bases')].tolist()
-    sum_base = sum(base for base in bases if not np.isnan(base))
-    if sum_base == 0:
-        return pd.Series(bases)
-
-    scaled_ratio = [(base / sum_base) * scale_factor * num_genes * PLOIDY for base in bases] # num_genes need to change in multiple true/pseudogene scenario
-    predicted_ratio = [ratio if np.isnan(ratio) else round(ratio) for ratio in scaled_ratio]
-    
-    return pd.Series(predicted_ratio)
-
 def calculate_sub_ratio(bases, scale_factor, num_genes):
-
-    ratio = bases.apply(get_ratio, axis=1, args=(scale_factor, num_genes))
+    ratio = (bases / np.nansum(bases, axis=1)[:, np.newaxis] * scale_factor * num_genes[:, np.newaxis]).round(0)
     ratio.columns = pd.MultiIndex.from_product([['ratio'], ['Copy Number'], [base[-1] for base in bases.columns]])
     return ratio
 
@@ -152,14 +150,14 @@ def calculate_ratio(raw_table, sum_df, scale_factor, num_gene, true_genes, pseud
     ratio_table = pd.concat([refs, bases, ratios], axis=1)
     return ratio_table
 
-def calculation_worker_CopyOnWrite(idx, alignment_table, true_gene_pos, pseudo_gene_pos, true_table, pseudo_table, true_genes, pseudo_genes, scale_factor, num_gene, tmp_dir):
+def calculation_worker_CopyOnWrite(idx, alignment_table, true_gene_pos, pseudo_gene_pos, true_table, pseudo_table, true_genes, pseudo_genes, scale_factor, tmp_dir):
     """ 
     format to pandas table (raw_summary, i.e. without sum & ratio) 
     
     """
     raw_table = build_raw_table(idx, alignment_table, true_gene_pos, pseudo_gene_pos, true_table, pseudo_table, true_genes, pseudo_genes)
-    sum_df = calculate_sum(raw_table, true_genes, pseudo_genes)
-    ratio_df = calculate_ratio(raw_table, sum_df, scale_factor[idx], num_gene, true_genes, pseudo_genes)
+    sum_df, aligned_num_gene = calculate_sum(raw_table, true_genes, pseudo_genes)
+    ratio_df = calculate_ratio(raw_table, sum_df, scale_factor[idx], aligned_num_gene, true_genes, pseudo_genes)
 
     raw_table_without_exception = raw_table.drop(columns=('ratio', 'exception', 'is_exception'))
     is_exception = raw_table[('ratio', 'exception', 'is_exception')]
