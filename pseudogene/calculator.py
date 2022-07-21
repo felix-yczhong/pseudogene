@@ -553,7 +553,7 @@ class PseudoGeneCalculator():
 
             # write out true genes and pseudogenes average coverage
             gene_cov_file_path = self.output_path / self.config["debug_output"].format(case_name=f"{self.gene_group}_gene_cov")
-            gene_cov_df = pd.DataFrame(self.gene_region_cov, columns=self.true_gene + self.pseudo_gene)
+            gene_cov_df = pd.DataFrame(self.gene_region_cov, columns=self.aligned_true_gene + self.aligned_pseudo_gene)
             df = pd.concat([index_df, gene_cov_df], axis=1)
             df.set_index('case name', inplace=True)
             df.to_csv(gene_cov_file_path, sep='\t')
