@@ -6,6 +6,8 @@
 
 [Usage](#usage)
 
+[Output](#output)
+
 [Configuration](#configuration)
 
 [Clinical Interpretation](#clincal-interpretation)
@@ -94,6 +96,20 @@ Options:
 ```
 
 This program uses min(ncpus, number of genes) main processes for each gene. Each main process uses ncpus sub-processes to handle input bam files and estimate copy numbers.
+
+## Output
+Each case has one output file. If debugging mode is turned on, control genes average coverage, target true gene and pseudogene(s) average coverage and scale factors for all cases will be output as well.
+The meaning of each output field is explained below
+* ratio
+    * exception
+        * is_exception: whether this position is specified as exception pos in config.json
+    * ref: reference bases for each position
+    * bases: read counts for reference bases for each positoin
+    * copy number: estimated copy number for true gene and pseudogene(s)
+* sum
+    * bases: sum of each base over true gene and pseudogene(s) at each aligned position.
+* true: true gene's genomic information such as exon, chromosome, position, reference base, read counts of each base
+* pseudo: each pseudogene's genomic information such as exon, chromosome, position, reference base, read counts of each base
 
 ## Configuration
 Modify config.json to change program configuration. Function of each field is explained below.
