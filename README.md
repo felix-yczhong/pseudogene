@@ -158,12 +158,12 @@ Each field is explained below.
 | Name | Data Type | Usage |
 |:---:|:---:|:---:|
 | gene group | string | name of the gene group to query, used in query_alignment function |
-| true_gene | list of string | name of the true gene, or gene used as reference template in   alignment |
+| true_gene | list of string | name of the true gene, or gene used as reference template in alignment |
 | pseudo_gene | list of string | name of the pseudogene, or other genes |
-| NM_number | string | accession number for any gene, used to look up amino acid change   by Nirvana |
-| gene_id | string | accession number for any gene, used to look up gene genomic range   in GENCODE database |
-| transcript_id | string | accession number for any gene, used to look up gene genomic range   in GENCODE database |
-| exception | Null or list of lists of string  | Used to manually call out positions that have same reference base.    The inner list must contain exactly 3 elements, which are chromosome,   position, and alternate base.  Alternate base is used to indicate to the   program which base should be used to calculate copy number.  |
+| NM_number | string | accession number for any gene, used to look up amino acid change by Nirvana |
+| gene_id | string | accession number for any gene, used to look up gene genomic range in GENCODE database |
+| transcript_id | string | accession number for any gene, used to look up gene genomic range in GENCODE database |
+| exception | Null or list of lists of string  | Used to manually call out positions that have same reference base. The inner list must contain exactly 3 elements, which are chromosome, position, and alternate base. Alternate base is used to indicate to the program which base should be used to calculate copy number for pseudogene(s) instead of using reference base. |
 
 ## Clincal Interpretation
 For SMA, cases with fewer than 2 copies of SMN1 are considered patients; cases with 2 copies of SMN1 but fewer than 2 copies of SMN2 are considered silent carriers.
